@@ -20,19 +20,21 @@ context: |
   ## Boundaries that proposals MUST respect
   - Real-time audio (transport, metronome, count-in, recording, monitoring, pitch detection, pitch-correction preview)
     runs in the browser. Network/agent latency SHALL NOT control recording start.
-  - Server owns the project model, version, and append-only revision history. Every mutation is a typed command with
+  - Server owns the project model, version, and append-only operation history (legacy revisions stay read-only). Every mutation is a typed command with
     expected_version; locked tracks/clips reject mutations. Undo writes a new version rather than deleting history.
   - Generation providers are separate from editing and playback. Provider output enters the project as assets/clips
     through commands, never by mutating audio graph state directly.
-  - Local adapters are seams for hosted migration: filesystem ↔ object storage, SQLite ↔ Postgres, FakeProducer ↔
-    agent harness. The a13n harness SDK integration is pending an exact package/repo from the user; do not guess.
+  - Local adapters are seams for hosted migration: filesystem ↔ object storage, SQLite ↔ Postgres, configured a13n producer ↔
+    hosted agent. The optional producer extra pins a13n-harness==0.21.0.
 
   ## Conventions
   - Use uv for Python, npm for the frontend.
   - Keep new dependencies justified by the change; update .env.example when configuration is added.
-  - Existing slices: project CRUD, command protocol, undo, track lock, fake producer proposals, local asset upload.
-  - Not yet implemented: audio engine/transport audio, recording, pitch analysis, vocal synthesis, real agent,
-    generation providers, export/rendering, auth.
+  - Implemented: browser audio/Workers and WAV export, clip/note/audio editing, mixing, built-in library,
+    server-validated commands and undo, isolated drafts with explicit Save/Save as, multiple local examples,
+    optional a13n producer, durable audio-provider jobs, and optional offline transcription.
+  - Not yet implemented: microphone recording, live pitch correction, auth, hosted storage/database, adaptive
+    atmosphere effects. Keep synthesis, playback and mix export in the browser; no backend render service is planned.
 
 rules:
   proposal:

@@ -1,22 +1,23 @@
 # Demotif architecture (local-first)
 
-Status: early skeleton. The repository now runs a full vertical slice: create a project, add tracks, chat with a
-stand-in producer, apply validated commands, lock sections, and undo. Audio recording/generation are not wired yet.
+Status: local music studio with browser synthesis/sampling, arrangement and note editing, mixing, WAV export,
+server-owned commands/history, and optional configured producer/audio services. Microphone recording and live pitch
+correction are not implemented.
 
 ## Runtime boundaries
 
 ```text
 ┌──────────────────────────── browser ────────────────────────────┐
-│ Studio UI (React)        Audio engine (Web Audio/AudioWorklet)  │
-│  arrangement, mixer       transport clock, metronome, recording  │
-│  producer chat            monitoring, pitch detection, preview   │
+│ Studio UI (React)        Audio engine (Web Audio + Workers)  │
+│  arrangement, mixer       transport clock, synthesis, sampling  │
+│  producer chat            Clip audition, effects, WAV export   │
 └───────────────┬─────────────────────────────────────────────────┘
                 │ /api (typed commands, JSON)
 ┌───────────────▼─────────────────────────────────────────────────┐
 │ Python API (FastAPI)                                            │
-│  project document · version CAS · revision log · assets         │
-│  producer adapter (fake now → a13n harness later)               │
-│  generation adapters (later; never in the audio path)           │
+│  project document · version CAS · operation log · assets         │
+│  a13n producer, staged proposals, durable SSE events               │
+│  optional audio adapters (never in the audio path)           │
 └───────────────┬─────────────────────────────────────────────────┘
                 │
         SQLite + local media  →  Postgres + object storage (hosted)
@@ -38,7 +39,8 @@ demotif/
 │  │  ├─ components/ui/             # shadcn/ui (base-nova, Base UI)
 │  │  ├─ features/
 │  │  │  ├─ projects/               # project list + create
-│  │  │  └─ studio/                 # arrangement, producer chat, transport, top bar
+│  │  │  └─ studio/                 # arrangement, editors, mixer, project menu, transport, producer
+│  │  ├─ audio/                      # DSP, Web Audio graph, render Workers, adapter
 │  │  ├─ lib/api.ts                 # typed HTTP client
 │  │  ├─ stores/studio.ts           # playback/UI state (Zustand)
 │  │  └─ types/project.ts           # document + command contracts
@@ -49,11 +51,12 @@ demotif/
 │  │  ├─ api/routes/                # projects, commands, messages, assets, health
 │  │  ├─ core/                      # settings, domain errors
 │  │  ├─ db/                        # async engine/session, declarative base
-│  │  ├─ models/project.py          # Project, Revision, Asset
+│  │  ├─ models/project.py          # Project, Operation, Revision, Asset, ProducerRun/Event, AudioJob
 │  │  ├─ schemas/                   # document, command, project, asset, agent DTOs
 │  │  ├─ services/                  # project + command (transactions)
 │  │  └─ adapters/
-│  │     ├─ agent/                  # Producer protocol + FakeProducer
+│  │     ├─ agent/                  # Producer protocol + a13n adapter
+│  │     ├─ audio/                  # gateway and bounded offline analysis
 │  │     └─ storage/                # LocalBlobStore
 │  ├─ tests/                        # command protocol tests
 │  └─ pyproject.toml                # uv-managed
@@ -64,8 +67,8 @@ demotif/
 └─ README.md
 ```
 
-Next directories to grow (not created until needed): `frontend/src/audio/` (engine, worklets, analysis),
-`frontend/src/features/{recording,mixer,pitch,assets}/`, `packages/contracts/` (generated OpenAPI types).
+Audio implementation lives in `frontend/src/audio/`; studio views remain in `frontend/src/features/studio/` and use
+Demotif's existing theme, Base UI components, and application shell.
 
 ## Data model
 
@@ -99,7 +102,13 @@ Invariants:
 - Undo (`POST /projects/{id}/undo`) applies the latest active operation inverse and appends a compensation linked by `undo_of`; consumed operations and compensations are skipped by later undo. History is never rewritten.
 
 Implemented commands: `project.rename`, `project.set_tempo`, `track.add`, `track.remove`, `track.set_lock`,
-`clip.add`, `clip.move`, `clip.remove`.
+`clip.add`, `clip.move`, `clip.remove`, `clip.update`, `clip.split`, `track.update`, `source.add`, `source.update`,
+`part.add`, `part.remove`, `mixer.set`, `project.set_time_signature`, and `project.set_sections`.
+
+`POST /projects/{id}/commands/batch` accepts `{request_id, expected_version, commands}`. It commits one validated
+version and one reversible operation. Request receipts deduplicate retries. Shared source edits check every referencing
+track/clip lock; duplicate the source explicitly to edit an unlocked instance independently. Bus routes reject cycles.
+Entity arrays use stable IDs; ordinary value arrays (including automation points) use reversible replacement values.
 
 The producer (`POST /projects/{id}/messages`) returns `{ reply, commands }` and does **not** auto-apply. The UI shows
 the proposed edits and applies them through the command endpoint, preserving explicit user approval.
@@ -110,8 +119,8 @@ the proposed edits and applies them through the command endpoint, preserving exp
 | --- | --- | --- | --- |
 | Project DB | SQLite (`aiosqlite`) | Postgres (`jsonb` document) | SQLAlchemy session + `DATABASE_URL` |
 | Media | `LocalBlobStore` | Signed object storage | storage adapter interface |
-| Producer | `FakeProducer` | a13n harness / hosted agent | `Producer` protocol |
-| Generation | none | provider APIs | separate service; outputs become assets |
+| Producer | optional configured a13n harness | hosted agent | `Producer` protocol |
+| Generation | optional audio gateway / offline analysis | provider APIs | durable jobs; outputs become assets |
 | Auth | none (single local user) | platform identity | request-scoped user dependency |
 
 Keep browser audio code independent of these adapters. The backend never touches audio buffers in the real-time path.
@@ -130,19 +139,52 @@ cd backend && uv run pytest
 cd frontend && npm run build
 ```
 
+## Musical state and audio runtime
+
+Stored media Assets remain independent from reusable Sources. A Source holds notes/instrument settings or an audio
+Asset reference. Saved Parts store named source windows. Clips reference Sources and own their timeline positions,
+source windows, gain, and fades. Musical note/arrangement/automation time uses quarter-note beats; recorded source
+windows use seconds. Tempo is 20–300 BPM with one decimal place. The render adapter alone converts beats to seconds.
+A tempo edit updates audio clip display lengths while preserving recorded source seconds and musical start beats.
+
+AudioContext owns playback time. Two lazy Workers synthesize longer sources and encode WAV; decoded immutable media
+is shared and project release invalidates stale work. Playback, Clip loops, and OfflineAudioContext export share voices,
+envelopes, routing and effects. Global and clip playback are mutually exclusive. Waveforms derive from decoded audio.
+UI gesture drafts are temporary; React Query contains only accepted project documents.
+
+## Producer and audio jobs
+
+`/projects/{id}/producer` restores run/event history. Runs have independent background lifetime, base versions,
+checkpoints, typed proposed commands, and monotonic SSE cursors. Tools stage validated edits on a private copy.
+Applying a proposal goes through the atomic command service; stale proposals cannot overwrite manual work. Closing
+SSE does not cancel execution. Explicit cancellation stops future model work; startup marks abandoned runs interrupted.
+The real adapter exposes only musical project and configured audio tools, never shell or host filesystem tools.
+
+`/projects/{id}/audio-jobs` stores generation/analysis requests and results. Equivalent request/take combinations reuse
+one durable identity. Submission intent is saved before network calls; uncertain submissions are never automatically
+repeated. Known upstream jobs can be explicitly resumed. Audio downloads are bounded, public HTTPS only, DNS-pinned,
+and normalized through ffmpeg with local-file/pipe protocols. Results become local media; adding musical Sources or
+placements still uses commands. Offline source analysis is optional and is distinct from future realtime pitch detection.
+Generated vocal separation currently accepts generated sources, not arbitrary local imports.
+
 ## Roadmap
 
-1. Confirm the exact **a13n harness SDK** (package/repo/docs) and implement `adapters/agent/a13n.py` behind `Producer`.
-2. Audio engine slice: AudioContext lifecycle, transport clock, metronome/count-in, Web Audio graph for clips.
-3. Recording: microphone capture, latency compensation, takes as assets, comping.
-4. Pitch: YIN/CREPE analysis, correction preview, then vocal synthesis providers.
-5. OpenSpec changes for each slice; add Alembic when the schema starts evolving.
-6. Hosted migration only after the local workflow is solid.
-
+Microphone capture/count-in, latency compensation, live pitch correction, multi-user access, and hosted adapters remain
+separate future work. Current local audio editing and playback do not depend on provider availability.
 
 ## Workspace UI source
 
-The shell derives from official shadcn/ui sidebar-15, Base UI/base-nova: https://ui.shadcn.com/r/styles/base-nova/sidebar-15.json (retrieved 2026-11-03). AppShell retains SidebarProvider, SidebarLeft, SidebarInset/header, and SidebarRight. Left header/content/rail and right sticky full-height bordered panel follow the block. Demo teams/favorites/workspaces become actual project navigation and disabled future library entries; calendar/account content becomes Producer. Narrow screens use Sheet with conversation state owned above responsive panels. Height/overflow constraints adapt the center to a DAW viewport. Neutral theme tokens replace purple, keeping timeline semantic colors. No new dependencies or server contracts.
+The shell originated from official shadcn/ui sidebar-15, Base UI/base-nova:
+https://ui.shadcn.com/r/styles/base-nova/sidebar-15.json (retrieved 2026-11-03). Shared tokens and primitives now
+use flat graphite surfaces, acid-yellow actions, mint playback feedback and Geist typography. Home and global
+library pages retain project navigation and restrained layouts. The studio hides global navigation and shows a
+project-name file menu, save state and undo above the workspace tools/transport row. Producer exists only inside
+projects. Global audio/instrument browsing never selects or creates a project.
+
+Library and Producer enter/exit horizontally; clip editors and mixer enter/exit vertically with retained closing
+content and reduced-motion handling. Arrangement and library drags share ClipDragPreview. Editing surfaces disable
+native text selection while inputs remain selectable. Actual note/waveform data drives previews and audition progress.
+Adaptive atmosphere shaders and music-reactive backgrounds remain a deferred proposal, with no implementation.
 
 
 ## Lightweight operation history
@@ -155,4 +197,35 @@ Startup backs up a legacy SQLite database using SQLite's backup API before schem
 
 ## Arrangement clip presentation
 
-The clip layout follows the distinction between pattern-note and audio previews in FL Studio's Playlist: https://www.image-line.com/fl-studio-learning-content/fl-studio-online-manual/html/playlist.htm . Track rows are 52px, clip bodies 44px, with a small title strip and restrained border. The previous random capsule bars were decorative, not waveform/note data, and are removed. Clips with no source show Empty clip; sourced clips identify Audio or MIDI until real waveform/note data is available. No fabricated notes are inserted into the project model.
+Arrangement clips display shared source windows with real note or decoded waveform previews. Note strokes retain
+consistent screen-space thickness; waveform density follows display width. The floating move/library preview uses
+the same card content and velocity-driven sway, with faded origin and snapped destination. The ruler supports drag
+seeking and section labels, and Follow centers the playhead outside manual gestures. Audio clip editors retain a
+fixed time scale and horizontal scrolling rather than squeezing long recordings into the viewport.
+
+
+## Explicit saves and editing drafts
+
+Opening a saved project creates an isolated server-validated draft with the saved project ID and base version.
+Examples open as drafts without a saved base. Drafts use the same typed command, media ownership, lock and
+append-only undo protocol, but never appear in project listings. Their accepted name/document is compared with
+an opening/save checkpoint to report unsaved changes, including a clean result after undo restores that content.
+
+`POST /api/projects/{id}/drafts` opens a regular project. `POST /api/projects/{draft_id}/save` accepts an expected
+draft version, optional `save_as` and name. Save publishes the accepted snapshot to its saved base using a version
+compare-and-swap; Save as creates a saved project and gives the draft that new base. Saving copies media ownership
+while retaining immutable local blobs. Draft and saved-project changes commit atomically. Examples require Save as.
+A stale saved base cannot be overwritten from another tab; the draft remains available to save separately.
+
+The browser's native `beforeunload` warning covers accepted-but-unsaved content, pending commands/uploads/saves,
+and uncommitted inputs. Data-router navigation blocking converts dirty in-app exits into full document
+navigation, so the same native warning also covers browser Back; cancelled POP navigation first restores the
+original URL. A completed draft edit is not a completed project save. Draft URLs support reload/recovery;
+server retention does not make the draft a saved/listed project. Existing saved projects are preserved by an additive
+schema migration with a pre-migration SQLite backup.
+
+## Audio engine scope
+
+Synthesis, realtime playback, clip loops and OfflineAudioContext WAV export stay in the browser. There is no
+backend mix-render service or realtime audio streaming. Backend audio jobs are optional generation and analysis
+adapters, independent of the playback graph.
