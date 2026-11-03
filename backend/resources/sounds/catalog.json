@@ -1,0 +1,569 @@
+{
+  "version": 1,
+  "voices": [
+    "piano",
+    "pluck",
+    "supersaw",
+    "lead",
+    "sub",
+    "reese",
+    "air",
+    "strings",
+    "electric-piano",
+    "guitar",
+    "electric-bass",
+    "brass",
+    "flute",
+    "organ",
+    "analog-lead",
+    "square-lead",
+    "fm-bell",
+    "mallet",
+    "music-box",
+    "kalimba",
+    "nylon-guitar",
+    "clav",
+    "acid-bass",
+    "fm-bass",
+    "organ-bass",
+    "warm-pad",
+    "choir-pad",
+    "glass-pad",
+    "string-ensemble",
+    "synth-brass"
+  ],
+  "kits": [
+    "studio",
+    "808",
+    "909",
+    "lofi"
+  ],
+  "entries": [
+    {
+      "id": "piano",
+      "name": "Piano",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "piano"
+    },
+    {
+      "id": "pluck",
+      "name": "Glass pluck",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "pluck"
+    },
+    {
+      "id": "supersaw",
+      "name": "Supersaw",
+      "category": "合成器",
+      "kind": "keys",
+      "sound": "supersaw"
+    },
+    {
+      "id": "lead",
+      "name": "Classic lead",
+      "category": "合成器",
+      "kind": "keys",
+      "sound": "lead"
+    },
+    {
+      "id": "sub",
+      "name": "Sub bass",
+      "category": "贝斯",
+      "kind": "bass",
+      "sound": "sub"
+    },
+    {
+      "id": "reese",
+      "name": "Reese bass",
+      "category": "贝斯",
+      "kind": "bass",
+      "sound": "reese"
+    },
+    {
+      "id": "air",
+      "name": "Air pad",
+      "category": "Pad",
+      "kind": "pad",
+      "sound": "air"
+    },
+    {
+      "id": "strings",
+      "name": "Strings",
+      "category": "Pad",
+      "kind": "pad",
+      "sound": "strings"
+    },
+    {
+      "id": "electric-piano",
+      "name": "Electric piano",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "electric-piano"
+    },
+    {
+      "id": "guitar",
+      "name": "Guitar",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "guitar"
+    },
+    {
+      "id": "electric-bass",
+      "name": "Electric bass",
+      "category": "贝斯",
+      "kind": "bass",
+      "sound": "electric-bass"
+    },
+    {
+      "id": "brass",
+      "name": "Brass",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "brass"
+    },
+    {
+      "id": "flute",
+      "name": "Flute",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "flute"
+    },
+    {
+      "id": "organ",
+      "name": "Organ",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "organ"
+    },
+    {
+      "id": "analog-lead",
+      "name": "Analog lead",
+      "category": "合成器",
+      "kind": "keys",
+      "sound": "analog-lead"
+    },
+    {
+      "id": "square-lead",
+      "name": "Square lead",
+      "category": "合成器",
+      "kind": "keys",
+      "sound": "square-lead"
+    },
+    {
+      "id": "fm-bell",
+      "name": "FM bell",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "fm-bell"
+    },
+    {
+      "id": "mallet",
+      "name": "Mallet",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "mallet"
+    },
+    {
+      "id": "music-box",
+      "name": "Music box",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "music-box"
+    },
+    {
+      "id": "kalimba",
+      "name": "Kalimba",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "kalimba"
+    },
+    {
+      "id": "nylon-guitar",
+      "name": "Nylon guitar",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "nylon-guitar"
+    },
+    {
+      "id": "clav",
+      "name": "Clav",
+      "category": "键盘",
+      "kind": "keys",
+      "sound": "clav"
+    },
+    {
+      "id": "acid-bass",
+      "name": "Acid bass",
+      "category": "贝斯",
+      "kind": "bass",
+      "sound": "acid-bass"
+    },
+    {
+      "id": "fm-bass",
+      "name": "FM bass",
+      "category": "贝斯",
+      "kind": "bass",
+      "sound": "fm-bass"
+    },
+    {
+      "id": "organ-bass",
+      "name": "Organ bass",
+      "category": "贝斯",
+      "kind": "bass",
+      "sound": "organ-bass"
+    },
+    {
+      "id": "warm-pad",
+      "name": "Warm pad",
+      "category": "Pad",
+      "kind": "pad",
+      "sound": "warm-pad"
+    },
+    {
+      "id": "choir-pad",
+      "name": "Choir pad",
+      "category": "Pad",
+      "kind": "pad",
+      "sound": "choir-pad"
+    },
+    {
+      "id": "glass-pad",
+      "name": "Glass pad",
+      "category": "Pad",
+      "kind": "pad",
+      "sound": "glass-pad"
+    },
+    {
+      "id": "string-ensemble",
+      "name": "String ensemble",
+      "category": "Pad",
+      "kind": "pad",
+      "sound": "string-ensemble"
+    },
+    {
+      "id": "synth-brass",
+      "name": "Synth brass",
+      "category": "合成器",
+      "kind": "keys",
+      "sound": "synth-brass"
+    },
+    {
+      "id": "kit-studio",
+      "name": "Studio Kit",
+      "category": "鼓组",
+      "kind": "drums",
+      "drum_kit": "studio"
+    },
+    {
+      "id": "kit-808",
+      "name": "808 Kit",
+      "category": "鼓组",
+      "kind": "drums",
+      "drum_kit": "808"
+    },
+    {
+      "id": "kit-909",
+      "name": "909 Kit",
+      "category": "鼓组",
+      "kind": "drums",
+      "drum_kit": "909"
+    },
+    {
+      "id": "kit-lofi",
+      "name": "Lo-fi Kit",
+      "category": "鼓组",
+      "kind": "drums",
+      "drum_kit": "lofi"
+    },
+    {
+      "id": "sample-808-kick",
+      "name": "808 Kick",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-808-kick.wav",
+      "root_note": 36,
+      "duration": 1.2,
+      "sha256": "9939895530b382acf8c8c63b6d3849cb295d51abb9d5fe2ee2111d01114734df"
+    },
+    {
+      "id": "sample-808-snare",
+      "name": "808 Snare",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-808-snare.wav",
+      "root_note": 38,
+      "duration": 1.2,
+      "sha256": "dbd144df0638a52437c2f17309cfbf3ff93abca6856a87209fd78a1fce83dc96"
+    },
+    {
+      "id": "sample-808-clap",
+      "name": "808 Clap",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-808-clap.wav",
+      "root_note": 39,
+      "duration": 1.2,
+      "sha256": "b31e1103a9f27daf693f5262f483a94fd6ad933c1126eaf48fc5fbaee2e0bf58"
+    },
+    {
+      "id": "sample-808-hat",
+      "name": "808 Hat",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-808-hat.wav",
+      "root_note": 42,
+      "duration": 1.2,
+      "sha256": "28e5cfd5b060e6ea25987ab03e41823c5cb2c591fa36bd8c3ba8134bafa62a84"
+    },
+    {
+      "id": "sample-909-kick",
+      "name": "909 Kick",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-909-kick.wav",
+      "root_note": 36,
+      "duration": 1.2,
+      "sha256": "ebd213a8107811c1f63725d4c1654e6dbf567dfb89e7e0f9b3e08552bdb9d8ed"
+    },
+    {
+      "id": "sample-909-snare",
+      "name": "909 Snare",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-909-snare.wav",
+      "root_note": 38,
+      "duration": 1.2,
+      "sha256": "77e79fc5005bb7e047e6e43133184e29f20aff608ddf38d8d616895c35095726"
+    },
+    {
+      "id": "sample-909-open-hat",
+      "name": "909 Open hat",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-909-open-hat.wav",
+      "root_note": 46,
+      "duration": 1.2,
+      "sha256": "8df43fc2b1acd4b69ecf375267e5f93178891b9d66ba44a91bd91740891b21ca"
+    },
+    {
+      "id": "sample-lofi-kick",
+      "name": "Lo-fi Kick",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-lofi-kick.wav",
+      "root_note": 36,
+      "duration": 1.2,
+      "sha256": "4a21cfefd41ff0c96a0deb4e05f07f2fced8b0d66271b0c62c91dc220d88977a"
+    },
+    {
+      "id": "sample-lofi-rim",
+      "name": "Lo-fi Rim",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-lofi-rim.wav",
+      "root_note": 37,
+      "duration": 1.2,
+      "sha256": "45f2a722199f2f3406d950058edc69c2e8969f6d1113ddefe84ec7ddfcdbb188"
+    },
+    {
+      "id": "sample-lofi-hat",
+      "name": "Lo-fi Hat",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-lofi-hat.wav",
+      "root_note": 42,
+      "duration": 1.2,
+      "sha256": "ae57d95cd094f7906f6bf8ecf2368c74d1f041c9cc0693bd65370094a3c84fe3"
+    },
+    {
+      "id": "sample-cowbell",
+      "name": "Cowbell",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-cowbell.wav",
+      "root_note": 56,
+      "duration": 1.2,
+      "sha256": "8418ac18260d07f2a7398dd8b18a335619a08df861eb6b52f26c195980da6af4"
+    },
+    {
+      "id": "sample-low-tom",
+      "name": "Low tom",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-low-tom.wav",
+      "root_note": 41,
+      "duration": 1.2,
+      "sha256": "8e7cbcdd476ee3af4266b3545203fa4e746ba0a5d5ecfb341183dbab4befed57"
+    },
+    {
+      "id": "sample-conga",
+      "name": "Conga",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-conga.wav",
+      "root_note": 63,
+      "duration": 1.2,
+      "sha256": "fb934474d184b32df58b7d1d9320f154b34b7d8ad013d2b9c6719b4e417dcb6d"
+    },
+    {
+      "id": "sample-shaker",
+      "name": "Shaker",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-shaker.wav",
+      "root_note": 82,
+      "duration": 1.2,
+      "sha256": "bf54df447fd70a279c6d3939dff98f7230d39aede3afc1a678c6d93508fee06b"
+    },
+    {
+      "id": "sample-tambourine",
+      "name": "Tambourine",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-tambourine.wav",
+      "root_note": 54,
+      "duration": 1.2,
+      "sha256": "ed66c1d526554b27cb1c488e60be53733decf24a888c43a7fa284eea8a3b659a"
+    },
+    {
+      "id": "sample-claves",
+      "name": "Claves",
+      "category": "采样",
+      "kind": "import",
+      "file": "sample-claves.wav",
+      "root_note": 75,
+      "duration": 1.2,
+      "sha256": "cf1019abdff4deb63b8aa6bb76e7d6ebd49e121425525163126f85720f9fadf9"
+    },
+    {
+      "id": "fx-riser",
+      "name": "Noise riser",
+      "category": "音效",
+      "kind": "import",
+      "file": "fx-riser.wav",
+      "root_note": 60,
+      "duration": 4,
+      "sha256": "0949d301696f18ea12588d9846299e1ae30be89eef63b9306755f8e15fadc06a"
+    },
+    {
+      "id": "fx-downlifter",
+      "name": "Downlifter",
+      "category": "音效",
+      "kind": "import",
+      "file": "fx-downlifter.wav",
+      "root_note": 60,
+      "duration": 3,
+      "sha256": "ed8830daea019be2ee8a61d75f2a0dd933a718b2a7463cd8b963e2dd2ad295ec"
+    },
+    {
+      "id": "fx-impact",
+      "name": "Sub impact",
+      "category": "音效",
+      "kind": "import",
+      "file": "fx-impact.wav",
+      "root_note": 60,
+      "duration": 2,
+      "sha256": "142e914117e739f60a6931dca780d5a67f8bc008cc257bc3c79623508dec6e50"
+    },
+    {
+      "id": "fx-reverse",
+      "name": "Reverse crash",
+      "category": "音效",
+      "kind": "import",
+      "file": "fx-reverse.wav",
+      "root_note": 60,
+      "duration": 1.6,
+      "sha256": "e7e6707c65b89441ab62dcb804599c0d10d105b04d092528fcfd86e85f4de24d"
+    },
+    {
+      "id": "fx-laser",
+      "name": "Laser",
+      "category": "音效",
+      "kind": "import",
+      "file": "fx-laser.wav",
+      "root_note": 60,
+      "duration": 0.7,
+      "sha256": "96374b68a1e6d388b882497fb833fe4e56245dca3fcbce071f2f9a6d63a6883f"
+    },
+    {
+      "id": "fx-vinyl",
+      "name": "Vinyl texture",
+      "category": "音效",
+      "kind": "import",
+      "file": "fx-vinyl.wav",
+      "root_note": 60,
+      "duration": 3.5,
+      "sha256": "381ad09ba928fa5af012af4c51ba95a7296e5b341dd86b7841e1a0ceac875cbb"
+    },
+    {
+      "id": "upright-piano",
+      "name": "Upright piano",
+      "category": "采样乐器",
+      "root_note": 61,
+      "file": "upright-piano.wav",
+      "duration": 6,
+      "sha256": "c74f1e1de839628f5add92a08599052ecf0c1f802e8cc1d14231e389c06fd695",
+      "source": {
+        "url": "https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/Keys/Upright%20Piano/Player_dyn2_rr1_020.wav",
+        "sha256": "dc314226819e7af0768cd7fc08933f5e5b550083145e05af630fd7556f4d3913",
+        "credit": "Versilian Studios / Sam Gossner & Simon Dalzell",
+        "license": "CC0-1.0",
+        "estimated_midi": 61.00000000000001
+      },
+      "kind": "import"
+    },
+    {
+      "id": "sampled-marimba",
+      "name": "Marimba",
+      "category": "采样乐器",
+      "root_note": 72,
+      "file": "sampled-marimba.wav",
+      "duration": 3.84175,
+      "sha256": "c81daabaa71f28f6ee5c18be921234850cc6cf679f1b9f464cd383ab25387c92",
+      "source": {
+        "url": "https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/Percussion/Marimba/Marimba_hit_Outrigger_C4_loud_01.wav",
+        "sha256": "4af539d47a452d7fad26e171b1c8adcca272cee97191f040d192680462c880b8",
+        "credit": "Versilian Studios / Sam Gossner & Simon Dalzell",
+        "license": "CC0-1.0",
+        "estimated_midi": 72.1
+      },
+      "kind": "import"
+    },
+    {
+      "id": "sampled-harp",
+      "name": "Harp",
+      "category": "采样乐器",
+      "root_note": 48,
+      "file": "sampled-harp.wav",
+      "duration": 5,
+      "sha256": "5ec0fff55984be65533f974cf87078b3d33cefb58e739e1b7abcfb4e837c3db4",
+      "source": {
+        "url": "https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/Strings/Harp/KSHarp_C3_mf.wav",
+        "sha256": "e5d232771704e140959819de8cf2a3e0ba49d021ca77354c42664ce4fce6d9f3",
+        "credit": "Versilian Studios / Sam Gossner & Simon Dalzell",
+        "license": "CC0-1.0",
+        "estimated_midi": 48
+      },
+      "kind": "import"
+    },
+    {
+      "id": "sampled-flute",
+      "name": "Flute staccato",
+      "category": "采样乐器",
+      "root_note": 72,
+      "file": "sampled-flute.wav",
+      "duration": 0.6005625,
+      "sha256": "9cc30fcab5ab4043c86aa1ca496ff9db506692c7139382b6d48693017b78f41b",
+      "source": {
+        "url": "https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/Woodwinds/Flute/stac/LDFlute_stac_C4_v2_rr1.wav",
+        "sha256": "dc1938d6becee0d3c175b69899490cb7a24e1ad8d73a57668835afd2ae516838",
+        "credit": "Versilian Studios / Sam Gossner & Simon Dalzell",
+        "license": "CC0-1.0",
+        "estimated_midi": 72
+      },
+      "kind": "import"
+    }
+  ]
+}
