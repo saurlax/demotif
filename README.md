@@ -2,69 +2,41 @@
 
 <p align="center">An AI music creation workspace.</p>
 
-**Compose through conversation, humming, and precise editing.**
+Demotif combines a browser music studio with a conversational producer. Arrange reusable Clips, edit notes and drum patterns, import audio, mix tracks, and export WAV. The producer proposes reversible edits for review before they enter the project.
 
-Demotif is a browser-based workspace for developing musical ideas with an AI producer. Start with a melody, a lyric, or a recording, then shape the arrangement and vocal performance through an editable project. Keep the parts you like and refine the rest.
+## Studio
 
-> Early development. A local vertical slice now runs: project creation, track arrangement, a producer chat that
-> proposes typed edits, server-side validation with locked sections, revision history, and undo. Audio recording,
-> playback, pitch work, and generation are the next slices. Hosted deployment is deferred.
-
-## Create with an AI producer
-
-- **Speak and sing.** Describe a change or sing a phrase to express a musical idea directly.
-- **Work on a phrase.** Revise a melody, lyric, or instrument part while preserving approved sections.
-- **Shape the performance.** Develop vocals from recordings, MIDI, and lyrics, with support for an authorized personal voice.
-- **Stay in control.** Inspect edits, compare versions, and undo changes within the same project.
-
-## From an idea to a track
-
-1. Record a short melody or bring existing lyrics and audio.
-2. Develop an arrangement with the AI producer.
-3. Listen, select a phrase, and describe or sing the next revision.
-4. Refine notes, timing, tracks, and vocal expression in the browser.
-5. Save the project and export the result.
-
-## Project architecture
-
-| Component | Responsibility |
-| --- | --- |
-| Browser studio | Audio capture, multitrack playback, MIDI editing, and project interaction |
-| Producer agent | Conversational guidance and structured editing tools |
-| Audio services | Transcription, melody extraction, generation, vocal synthesis, and rendering |
-| Project storage | Recordings, generated assets, project state, and revision history |
-
-The project model is the source of truth. Agent actions operate on explicit tracks and clips, respect locked sections, and produce reversible edits. Generation providers are separate from editing and playback.
+Microphone recording, live pitch correction, account isolation, and hosted deployment remain future work. Audio generation and the real producer require server configuration; unavailable capabilities are shown explicitly.
 
 ## Development
 
 Requires Node.js 20.19+ and Python 3.13 with [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/saurlax/demotif.git
-cd demotif
-
-# terminal 1 — API on http://127.0.0.1:8200
+# terminal 1
 cd backend
 uv sync
 uv run uvicorn app.main:app --port 8200
 
-# terminal 2 — studio on http://localhost:5173
+# terminal 2
 cd frontend
 npm install
 npm run dev
 ```
 
-The Vite dev server proxies `/api` to the backend. Port 8200 is used because 8000–8197 fall inside a Windows
-excluded port range on the primary development machine; override with `DEMOTIF_*` settings if needed.
+Open [localhost:5173](http://localhost:5173). Vite proxies `/api` to port 8200. SQLite and media stay under `backend/data/`; back up both together. No browser database or external service is required for playback, editing, and export.
+
+For the real producer, install `uv sync --extra producer` and configure `DEMOTIF_PRODUCER_MODEL`, `DEMOTIF_PRODUCER_API_KEY`, and optionally `DEMOTIF_PRODUCER_BASE_URL` in `backend/.env`. The verified SDK is `a13n-harness==0.21.0`, supporting OpenAI Responses and Chat Completions compatible endpoints (`DEMOTIF_PRODUCER_API=responses` or `chat`). Only project/audio tools are exposed.
 
 ```bash
-cd backend && uv run pytest       # command protocol + producer tests
-cd frontend && npm run build      # typecheck + production build
+cd backend && uv run --all-extras pytest
+cd backend && uv run ruff check app tests
+cd frontend && npm test
+cd frontend && npm run build
 ```
 
-The repository uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven changes. Agent integrations
-are committed under `.agents/skills/` (vendor-neutral) and conventions live in `AGENTS.md`.
+Project JSON imports create a new project. Referenced audio must already be available in the same local workspace; JSON does not embed media. Audio imports accept up to eight files per batch, each up to 60 MB and five minutes. Source recordings remain at their original speed when project tempo changes.
 
-See [`docs/architecture.md`](docs/architecture.md) for runtime boundaries, the Producer Command Protocol, the
-adapter seams for a future hosted deployment, and the current roadmap.
+Third-party sample attribution is retained in `backend/resources/sounds/catalog.json` with license texts in `backend/resources/licenses/`. See [architecture](docs/architecture.md) for state authority, command history, runtime boundaries, and adapter seams.
+
+Example packs are read from `backend/data/examples/<id>/manifest.json` (or `DEMOTIF_EXAMPLES_ROOT`). Pocket groove is built in; additional packs and their media are local data and are not distributed with the source. Opening an example creates an unlisted draft, not a saved project.
