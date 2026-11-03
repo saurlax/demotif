@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Language: en
+  All artifacts must be written in en.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  ## Product
+  Demotif is a browser-based AI music workspace. A conversational producer helps the user develop a song while a
+  DAW-style browser studio handles arrangement, recording, and (later) vocal synthesis. The project document is the
+  source of truth; agent actions are explicit, validated, reversible commands.
+
+  ## Stack
+  - frontend/: Vite 8, React 19, TypeScript (strict, erasableSyntaxOnly), Tailwind v4, shadcn/ui (base-nova / Base UI),
+    Zustand, TanStack Query, React Router. Path alias `@/`.
+  - backend/: Python 3.13, FastAPI, Pydantic v2, SQLAlchemy 2 async, SQLite locally; media on the local filesystem.
+    Run on port 8200; Vite proxies /api.
+  - openspec/: this directory. Agent skills live in .agents/skills (vendor-neutral).
+
+  ## Boundaries that proposals MUST respect
+  - Real-time audio (transport, metronome, count-in, recording, monitoring, pitch detection, pitch-correction preview)
+    runs in the browser. Network/agent latency SHALL NOT control recording start.
+  - Server owns the project model, version, and append-only revision history. Every mutation is a typed command with
+    expected_version; locked tracks/clips reject mutations. Undo writes a new version rather than deleting history.
+  - Generation providers are separate from editing and playback. Provider output enters the project as assets/clips
+    through commands, never by mutating audio graph state directly.
+  - Local adapters are seams for hosted migration: filesystem ↔ object storage, SQLite ↔ Postgres, FakeProducer ↔
+    agent harness. The a13n harness SDK integration is pending an exact package/repo from the user; do not guess.
+
+  ## Conventions
+  - Use uv for Python, npm for the frontend.
+  - Keep new dependencies justified by the change; update .env.example when configuration is added.
+  - Existing slices: project CRUD, command protocol, undo, track lock, fake producer proposals, local asset upload.
+  - Not yet implemented: audio engine/transport audio, recording, pitch analysis, vocal synthesis, real agent,
+    generation providers, export/rendering, auth.
+
+rules:
+  proposal:
+    - State which boundary the change touches (browser audio, server model, provider, adapter).
+    - State explicit non-goals for the change.
+  design:
+    - Name affected files and the migration path if a hosted adapter is involved.
+  tasks:
+    - Include a verification step (build, tests, or manual UI check) for each user-visible change.

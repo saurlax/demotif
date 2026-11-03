@@ -6,7 +6,9 @@
 
 Demotif is a browser-based workspace for developing musical ideas with an AI producer. Start with a melody, a lyric, or a recording, then shape the arrangement and vocal performance through an editable project. Keep the parts you like and refine the rest.
 
-> Early development. This repository currently contains the project overview. The workflow and capabilities below describe the planned scope; a runnable application is not yet available.
+> Early development. A local vertical slice now runs: project creation, track arrangement, a producer chat that
+> proposes typed edits, server-side validation with locked sections, revision history, and undo. Audio recording,
+> playback, pitch work, and generation are the next slices. Hosted deployment is deferred.
 
 ## Create with an AI producer
 
@@ -36,9 +38,33 @@ The project model is the source of truth. Agent actions operate on explicit trac
 
 ## Development
 
+Requires Node.js 20.19+ and Python 3.13 with [uv](https://docs.astral.sh/uv/).
+
 ```bash
 git clone https://github.com/saurlax/demotif.git
 cd demotif
+
+# terminal 1 — API on http://127.0.0.1:8200
+cd backend
+uv sync
+uv run uvicorn app.main:app --port 8200
+
+# terminal 2 — studio on http://localhost:5173
+cd frontend
+npm install
+npm run dev
 ```
 
-Implementation, setup instructions, and deployment documentation will be added as components become available.
+The Vite dev server proxies `/api` to the backend. Port 8200 is used because 8000–8197 fall inside a Windows
+excluded port range on the primary development machine; override with `DEMOTIF_*` settings if needed.
+
+```bash
+cd backend && uv run pytest       # command protocol + producer tests
+cd frontend && npm run build      # typecheck + production build
+```
+
+The repository uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven changes. Agent integrations
+are committed under `.agents/skills/` (vendor-neutral) and conventions live in `AGENTS.md`.
+
+See [`docs/architecture.md`](docs/architecture.md) for runtime boundaries, the Producer Command Protocol, the
+adapter seams for a future hosted deployment, and the current roadmap.
