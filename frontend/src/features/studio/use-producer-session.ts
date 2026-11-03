@@ -1,33 +1,57 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProducerCommand } from '@/types/project'
-
-export interface ChatMessage {
-  id: string
-  role: 'producer' | 'user'
-  text: string
-  commands?: ProducerCommand[]
-  applied?: boolean
+export interface ProducerEvent {
+  seq: number
+  type: string
+  delta?: string
+  text?: string
+  name?: string
+  count?: number
+  status?: string
 }
-
+export interface ProducerRun {
+  id: string
+  prompt: string
+  status: string
+  base_version: number
+  applied: boolean
+  commands: ProducerCommand[]
+  events: ProducerEvent[]
+}
 export function useProducerSession(projectId: string) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'producer',
-      text: 'Tell me what to change, or describe the part you hear in your head. I will propose edits before applying them.',
-    },
-  ])
-  const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
-  const [applyingFor, setApplyingFor] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const [activeProjectId, setActiveProjectId] = useState(projectId)
-  if (activeProjectId !== projectId) {
-    setActiveProjectId(projectId)
-    setMessages([{ id: 'welcome', role: 'producer', text: 'Tell me what to change. I will propose edits before applying them.' }])
+  const [runs, setRuns] = useState<ProducerRun[]>([]),
+    [ready, setReady] = useState(false),
+    [draft, setDraft] = useState(''),
+    [sending, setSending] = useState(false),
+    [error, setError] = useState<string | null>(null),
+    [applying, setApplying] = useState<string | null>(null)
+  const projectRef = useRef(projectId)
+  const [activeProject, setActiveProject] = useState(projectId)
+  useEffect(() => {
+    projectRef.current = projectId
+  }, [projectId])
+  if (activeProject !== projectId) {
+    setActiveProject(projectId)
+    setRuns([])
+    setReady(false)
     setDraft('')
+    setSending(false)
     setError(null)
+    setApplying(null)
   }
-  return { messages, setMessages, draft, setDraft, sending, setSending, applyingFor, setApplyingFor, error, setError }
+  return {
+    runs,
+    setRuns,
+    ready,
+    setReady,
+    draft,
+    setDraft,
+    sending,
+    setSending,
+    error,
+    setError,
+    applying,
+    setApplying,
+    projectRef,
+  }
 }

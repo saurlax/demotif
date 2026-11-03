@@ -1,9 +1,15 @@
-import { ArrowUp, Check, Loader2, Sparkles, Wand2 } from 'lucide-react'
-import type { ChatMessage, useProducerSession } from './use-producer-session'
-
+import { useCallback, useEffect, useRef } from 'react'
+import { ArrowUp, Check, Loader2, Sparkles, Square, Wand2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
-import { Button } from '@/components/ui/button'
+import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+  MessageGroup,
+  MessageHeader,
+} from '@/components/ui/message'
 import {
   InputGroup,
   InputGroupAddon,
@@ -11,172 +17,299 @@ import {
   InputGroupText,
   InputGroupTextarea,
 } from '@/components/ui/input-group'
-import { Message, MessageAvatar, MessageContent, MessageGroup, MessageHeader } from '@/components/ui/message'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { ApiError, applyCommand, sendProducerMessage } from '@/lib/api'
-import type { ProducerCommand, Project } from '@/types/project'
+import type { Project } from '@/types/project'
+import type {
+  useProducerSession,
+  ProducerRun as Run,
+} from './use-producer-session'
 
-
-function describeCommand(command: ProducerCommand): string {
-  switch (command.type) {
-    case 'project.set_tempo':
-      return `Tempo → ${command.tempo} BPM`
-    case 'project.rename':
-      return `Rename → ${command.name}`
-    case 'track.add':
-      return `Add ${command.kind} track “${command.name}”`
-    case 'track.remove':
-      return `Remove track`
-    case 'track.set_lock':
-      return `${command.locked ? 'Lock' : 'Unlock'} track`
-    case 'clip.add':
-      return `Add clip “${command.name}”`
-    case 'clip.move':
-      return `Move clip to beat ${command.start_beat}`
-    case 'clip.remove':
-      return 'Remove clip'
-  }
-}
-
-interface ProducerPanelProps {
+export function ProducerPanel({
+  project,
+  onProjectChange,
+  session,
+}: {
   project: Project
   session: ReturnType<typeof useProducerSession>
-  onProjectChange: (project: Project) => void
-}
-
-export function ProducerPanel({ project, onProjectChange, session }: ProducerPanelProps) {
-  const { messages, setMessages, draft, setDraft, sending, setSending, applyingFor, setApplyingFor, error, setError } = session
-
+  onProjectChange: (p: Project) => void
+}) {
+  const {
+    runs,
+    setRuns,
+    ready,
+    setReady,
+    draft,
+    setDraft,
+    sending,
+    setSending,
+    error,
+    setError,
+    applying,
+    setApplying,
+    projectRef,
+  } = session
+  const base = `/api/projects/${project.id}/producer`
+  const load = useCallback(async () => {
+    const r = await fetch(base)
+    if (!r.ok) throw new Error('Cannot load producer conversation')
+    const data = await r.json()
+    if (projectRef.current === project.id) {
+      setRuns(data.runs)
+      setReady(data.ready)
+    }
+  }, [base, project.id, projectRef, setReady, setRuns])
+  useEffect(() => {
+    void load().catch((e) => setError(String(e)))
+  }, [load, setError])
+  const active = runs.find((r) => r.status === 'running')
+  const activeId = active?.id
+  const after = active?.events.at(-1)?.seq ?? 0
+  const cursor = useRef(after)
+  useEffect(() => {
+    cursor.current = after
+  }, [after])
+  useEffect(() => {
+    if (!activeId) return
+    const source = new EventSource(
+      `${base}/runs/${activeId}/events?after=${cursor.current}`,
+    )
+    source.onmessage = (e) => {
+      const event: import('./use-producer-session').ProducerEvent = JSON.parse(
+        e.data,
+      )
+      setRuns((current) =>
+        current.map((r) =>
+          r.id === activeId && !r.events.some((e) => e.seq === event.seq)
+            ? { ...r, events: [...r.events, event] }
+            : r,
+        ),
+      )
+    }
+    source.addEventListener('done', () => {
+      source.close()
+      void load().catch((e) => setError(String(e)))
+    })
+    return () => source.close()
+    // The stream owns its cursor; reconnect uses the last persisted snapshot.
+  }, [activeId, base, load, setRuns, setError])
   async function send() {
     const text = draft.trim()
-    if (!text || sending) return
+    if (!text || sending || active) return
     setSending(true)
     setError(null)
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
-    setDraft('')
     try {
-      const reply = await sendProducerMessage(project.id, project.version, text)
-      setMessages((current) => [
-        ...current,
-        { id: crypto.randomUUID(), role: 'producer', text: reply.reply, commands: reply.commands },
-      ])
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'The producer could not answer.')
+      const id = crypto.randomUUID(),
+        r = await fetch(`${base}/runs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, text, expected_version: project.version }),
+        })
+      if (!r.ok) {
+        const body = await r.json()
+        throw new Error(body.message ?? 'Producer unavailable')
+      }
+      setDraft('')
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Request failed')
     } finally {
       setSending(false)
     }
   }
-
-  async function apply(message: ChatMessage) {
-    if (!message.commands?.length) return
-    setApplyingFor(message.id)
+  async function apply(run: Run) {
+    setApplying(run.id)
     setError(null)
-    let latest = project
     try {
-      for (const command of message.commands) {
-        const result = await applyCommand(latest.id, latest.version, command)
-        latest = result.project
-        onProjectChange(latest)
+      const r = await fetch(`${base}/runs/${run.id}/apply`, { method: 'POST' })
+      if (!r.ok) {
+        const body = await r.json()
+        throw new Error(body.message ?? 'Apply failed')
       }
-      setMessages((current) => current.map((item) => (item.id === message.id ? { ...item, applied: true } : item)))
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Some edits could not be applied.')
+      const result = await r.json()
+      onProjectChange(result.project)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Apply failed')
     } finally {
-      setApplyingFor(null)
+      setApplying(null)
     }
   }
-
+  function publicEvents(run: Run) {
+    const output: { type: string; text: string; seq: number }[] = []
+    for (const e of run.events) {
+      if (e.type === 'text') {
+        const last = output.at(-1)
+        if (last?.type === 'text') last.text += e.delta ?? ''
+        else output.push({ type: 'text', text: e.delta ?? '', seq: e.seq })
+      } else if (e.type === 'tool')
+        output.push({
+          type: 'tool',
+          text:
+            e.name === 'process_audio'
+              ? 'Processing audio…'
+              : `${e.count ?? 0} edits ${e.status ?? 'proposed'}`,
+          seq: e.seq,
+        })
+      else if (e.type === 'error')
+        output.push({
+          type: 'error',
+          text: e.text ?? 'Run failed',
+          seq: e.seq,
+        })
+      else if (e.type === 'reply' && !output.some((o) => o.type === 'text'))
+        output.push({ type: 'text', text: e.text ?? '', seq: e.seq })
+    }
+    return output
+  }
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col bg-sidebar">
-      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border px-4 pr-12">
-        <Sparkles className="size-3.5 text-primary" />
+    <aside className="studio-producer flex h-full min-h-0 w-full flex-col bg-sidebar">
+      <div className="producer-header flex h-14 shrink-0 items-center gap-2 border-b px-4 max-lg:pr-12">
+        <span className="producer-mark"><Sparkles className="size-4" /></span>
         <span className="text-sm font-medium">Producer</span>
-        <Badge variant="outline" className="ml-auto text-[10px] text-muted-foreground">
-          local stub
+        <Badge
+          variant="outline"
+          className={`producer-status ml-auto text-xs ${ready ? 'is-ready' : 'text-muted-foreground'}`}
+        >
+          {ready ? 'Ready' : 'Not configured'}
         </Badge>
       </div>
-
-      <ScrollArea className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <MessageGroup className="gap-5 p-3">
-          {messages.map((message) => (
-            <Message key={message.id} align={message.role === 'user' ? 'end' : 'start'}>
-              {message.role === 'producer' && (
+          {!runs.length && (
+            <p className="p-2 text-sm text-muted-foreground">
+              No messages yet.
+            </p>
+          )}
+          {runs.map((run) => (
+            <div key={run.id} className="space-y-3">
+              <Message align="end">
+                <MessageContent>
+                  <MessageHeader>You</MessageHeader>
+                  <Bubble align="end">
+                    <BubbleContent className="whitespace-pre-wrap text-sm">
+                      {run.prompt}
+                    </BubbleContent>
+                  </Bubble>
+                </MessageContent>
+              </Message>
+              <Message align="start">
                 <MessageAvatar className="size-8 self-start">
-                  <Sparkles className="size-4 text-primary" />
+                  <Sparkles className="size-4" />
                 </MessageAvatar>
-              )}
-              <MessageContent className="gap-1.5">
-                <MessageHeader className="px-2">
-                  {message.role === 'producer' ? 'Producer' : 'You'}
-                </MessageHeader>
-                <Bubble
-                  align={message.role === 'user' ? 'end' : 'start'}
-                  variant={message.role === 'user' ? 'default' : 'secondary'}
-                >
-                  <BubbleContent className="text-xs">{message.text}</BubbleContent>
-                </Bubble>
-
-                {message.commands && message.commands.length > 0 && (
-                  <Bubble align="start" variant="outline" className="w-full max-w-full">
-                    <BubbleContent className="w-full space-y-1.5">
-                      {message.commands.map((command, index) => (
-                        <div key={index} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <Wand2 className="size-3 shrink-0" />
-                          <span className="truncate">{describeCommand(command)}</span>
+                <MessageContent className="min-w-0">
+                  <MessageHeader>Producer</MessageHeader>
+                  {publicEvents(run).map((e) =>
+                    e.type === 'tool' ? (
+                      <div
+                        key={e.seq}
+                        className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground"
+                      >
+                        <Wand2 className="size-3" />
+                        {e.text}
+                      </div>
+                    ) : (
+                      <Bubble
+                        key={e.seq}
+                        variant={
+                          e.type === 'error' ? 'destructive' : 'secondary'
+                        }
+                      >
+                        <BubbleContent className="whitespace-pre-wrap text-sm">
+                          {e.text}
+                        </BubbleContent>
+                      </Bubble>
+                    ),
+                  )}
+                  {run.status === 'running' ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-3 animate-spin" />
+                      Working
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Stop producer"
+                        onClick={() =>
+                          void fetch(`${base}/runs/${run.id}/cancel`, {
+                            method: 'POST',
+                          }).then(() => load())
+                        }
+                      >
+                        <Square />
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="px-2 text-xs text-muted-foreground">
+                      {run.status}
+                    </span>
+                  )}
+                  {run.commands.length > 0 && (
+                    <div className="space-y-1 rounded-md border p-2">
+                      {run.commands.map((c, i) => (
+                        <div
+                          key={i}
+                          className="truncate text-sm text-muted-foreground"
+                        >
+                          {c.type.replaceAll('.', ' ').replaceAll('_', ' ')}
                         </div>
                       ))}
                       <Button
+                        className="mt-2 w-full"
                         size="sm"
-                        variant={message.applied ? 'ghost' : 'secondary'}
-                        className="mt-1 w-full"
-                        disabled={message.applied || applyingFor !== null}
-                        onClick={() => void apply(message)}
+                        variant="secondary"
+                        disabled={
+                          run.applied ||
+                          applying !== null ||
+                          run.base_version !== project.version
+                        }
+                        onClick={() => void apply(run)}
                       >
-                        {applyingFor === message.id ? (
-                          <Loader2 className="animate-spin" />
-                        ) : message.applied ? (
+                        {run.applied ? (
                           <Check />
+                        ) : applying === run.id ? (
+                          <Loader2 className="animate-spin" />
                         ) : null}
-                        {message.applied
+                        {run.applied
                           ? 'Applied'
-                          : `Apply ${message.commands.length} edit${message.commands.length > 1 ? 's' : ''}`}
+                          : run.base_version !== project.version
+                            ? 'Project changed · ask for fresh edits'
+                            : `Apply ${run.commands.length} edits`}
                       </Button>
-                    </BubbleContent>
-                  </Bubble>
-                )}
-              </MessageContent>
-            </Message>
+                    </div>
+                  )}
+                </MessageContent>
+              </Message>
+            </div>
           ))}
-
           {error && (
-            <Bubble align="start" variant="destructive" className="max-w-full">
-              <BubbleContent className="text-[11px]">{error}</BubbleContent>
-            </Bubble>
+            <p role="alert" className="p-2 text-sm text-destructive">
+              {error}
+            </p>
           )}
         </MessageGroup>
-      </ScrollArea>
-
-      <div className="shrink-0 border-t border-border/70 p-3">
+      </div>
+      <div className="shrink-0 border-t p-3">
         <InputGroup className="h-auto flex-col items-stretch">
           <InputGroupTextarea
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
                 void send()
               }
             }}
-            placeholder="Make the chorus feel wider…"
-            aria-label="Message Producer" className="min-h-[64px]"
+            placeholder="Develop this idea…"
+            aria-label="Message Producer"
+            className="min-h-16"
           />
           <InputGroupAddon align="block-end" className="justify-between">
-            <InputGroupText className="text-[10px]">Enter to send</InputGroupText>
+            <InputGroupText className="text-xs">
+              {ready ? 'Enter to send' : 'Configure a model to begin'}
+            </InputGroupText>
             <InputGroupButton
               size="icon-xs"
-              onClick={() => void send()}
-              disabled={sending || !draft.trim()}
+              disabled={!ready || !draft.trim() || sending || !!active}
               aria-label="Send message"
+              onClick={() => void send()}
             >
               {sending ? <Loader2 className="animate-spin" /> : <ArrowUp />}
             </InputGroupButton>
