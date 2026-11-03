@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
+import { ThemeProvider } from '@/components/theme-provider'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -15,7 +16,9 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider delay={300}>{children}</TooltipProvider>
+      <ThemeProvider>
+        <TooltipProvider delay={300}>{children}</TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }
