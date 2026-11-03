@@ -5,14 +5,14 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.agent.base import Producer
-from app.adapters.agent.fake import FakeProducer
+from app.adapters.agent.harness import HarnessProducer
 from app.adapters.storage.local import LocalBlobStore
 from app.core.config import get_settings
 from app.db.session import get_session
 
 
 def get_producer() -> Producer:
-    return FakeProducer()
+    return HarnessProducer()
 
 
 @lru_cache

@@ -7,9 +7,23 @@ from app.schemas.document import ProjectDocument
 from app.schemas.project import ProjectCreate
 
 
-async def create_project(session: AsyncSession, data: ProjectCreate) -> Project:
+async def create_project(
+    session: AsyncSession,
+    data: ProjectCreate,
+    *,
+    is_draft: bool = False,
+    example_id: str | None = None,
+) -> Project:
     document = ProjectDocument(tempo=data.tempo, time_signature=data.time_signature)
-    project = Project(name=data.name, document=document.model_dump(mode="json"), version=1)
+    state = document.model_dump(mode="json")
+    project = Project(
+        name=data.name,
+        document=state,
+        version=1,
+        is_draft=is_draft,
+        draft_example_id=example_id,
+        draft_checkpoint={"name": data.name, "document": state} if is_draft else None,
+    )
     session.add(project)
     await session.flush()
     session.add(
@@ -28,7 +42,9 @@ async def create_project(session: AsyncSession, data: ProjectCreate) -> Project:
 
 
 async def list_projects(session: AsyncSession) -> list[Project]:
-    result = await session.execute(select(Project).order_by(Project.updated_at.desc()))
+    result = await session.execute(
+        select(Project).where(Project.is_draft.is_(False)).order_by(Project.updated_at.desc())
+    )
     return list(result.scalars())
 
 

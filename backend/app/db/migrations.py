@@ -22,6 +22,13 @@ def backup_database(database_url: str) -> Path | None:
     # Inspect read-only before deciding whether a pre-migration backup is needed.
     with sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "projects" in tables and "is_draft" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(projects)")
+        }:
+            backup = source.with_name(f"{source.name}.pre-drafts-{datetime.now(UTC):%Y%m%dT%H%M%S%f}.bak")
+            with sqlite3.connect(backup) as destination:
+                connection.backup(destination)
+            return backup
         if "revisions" not in tables:
             return None
         if "operations" in tables:
@@ -88,3 +95,20 @@ async def migrate_history(session: AsyncSession) -> None:
 async def upgrade_history(engine: AsyncEngine) -> None:
     async with AsyncSession(engine, expire_on_commit=False) as session:
         await migrate_history(session)
+
+
+async def upgrade_drafts(engine: AsyncEngine) -> None:
+    from sqlalchemy import inspect, text
+
+    async with engine.begin() as connection:
+        columns = await connection.run_sync(lambda conn: {c["name"] for c in inspect(conn).get_columns("projects")})
+        additions = {
+            "is_draft": "BOOLEAN NOT NULL DEFAULT false",
+            "draft_base_id": "VARCHAR(32)",
+            "draft_base_version": "INTEGER",
+            "draft_example_id": "VARCHAR(100)",
+            "draft_checkpoint": "JSON",
+        }
+        for name, declaration in additions.items():
+            if name not in columns:
+                await connection.execute(text(f"ALTER TABLE projects ADD COLUMN {name} {declaration}"))

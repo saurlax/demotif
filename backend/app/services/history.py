@@ -30,7 +30,13 @@ def changes(before: dict, after: dict) -> list[dict]:
         if isinstance(old, dict) and isinstance(new, dict) and old.keys() == new.keys():
             for key in old:
                 walk(old[key], new[key], [*path, key])
-        elif isinstance(old, list) and isinstance(new, list):
+        elif (
+            isinstance(old, list)
+            and isinstance(new, list)
+            and all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in [*old, *new])
+            and len({item["id"] for item in old}) == len(old)
+            and len({item["id"] for item in new}) == len(new)
+        ):
             # Project lists are tracks/clips, both identified by persistent IDs.
             current = [item["id"] for item in old]
             wanted = [item["id"] for item in new]
@@ -109,4 +115,12 @@ async def undo_target(session: AsyncSession, project_id: str, version: int) -> O
 async def read_project(session: AsyncSession, project: Project) -> ProjectRead:
     data = ProjectRead.model_validate(project)
     data.can_undo = await undo_target(session, project.id, project.version) is not None
+    data.has_unsaved_changes = bool(
+        project.is_draft
+        and project.draft_checkpoint
+        != {
+            "name": project.name,
+            "document": project.document,
+        }
+    )
     return data

@@ -63,3 +63,54 @@ async def test_undo_restores_previous_document_as_new_version(session):
     assert undone.project.version == 3
     assert undone.project.document.tracks == []
     assert undone.revision.summary == "Undo change from version 2"
+
+
+async def test_time_signature_is_versioned_and_undoable_without_moving_clips(session):
+    from copy import deepcopy
+
+    from pydantic import ValidationError
+
+    from app.schemas.command import SetTimeSignature
+
+    project = await create_project(session, ProjectCreate(name="Meter"))
+    await apply_command(session, project, CommandRequest(expected_version=1, command=AddTrack(name="Drums")))
+    track_id = project.document["tracks"][0]["id"]
+    await apply_command(
+        session,
+        project,
+        CommandRequest(
+            expected_version=2,
+            command=AddClip(
+                track_id=track_id,
+                name="Beat",
+                start_beat=8,
+                length_beats=4,
+            ),
+        ),
+    )
+    original_tracks = deepcopy(project.document["tracks"])
+    result = await apply_command(
+        session,
+        project,
+        CommandRequest(
+            expected_version=3,
+            command=SetTimeSignature(time_signature="6/8"),
+        ),
+    )
+    assert result.project.document.time_signature == "6/8"
+    assert project.document["tracks"] == original_tracks
+    with pytest.raises(VersionConflictError):
+        await apply_command(
+            session,
+            project,
+            CommandRequest(
+                expected_version=3,
+                command=SetTimeSignature(time_signature="3/4"),
+            ),
+        )
+    restored = await undo_last_change(session, project, expected_version=4)
+    assert restored.project.document.time_signature == "4/4"
+    assert project.document["tracks"] == original_tracks
+    for invalid in ["0/4", "33/4", "4/3", "4/0", "bad"]:
+        with pytest.raises(ValidationError):
+            SetTimeSignature(time_signature=invalid)
