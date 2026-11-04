@@ -41,6 +41,8 @@
   --color-ring: var(--ring);
   --color-waveform: var(--waveform);
   --color-playhead: var(--playhead);
+  --color-mint: var(--mint);
+  --color-mint-foreground: var(--mint-foreground);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -50,72 +52,97 @@
 :root {
   color-scheme: light;
   --radius: 0.375rem;
-  --background: #f5f5f1;
-  --foreground: #242620;
-  --card: #ffffff;
+  --background: #f3f4f5;
+  --foreground: #24282e;
+  --card: #fcfcfd;
   --card-foreground: var(--foreground);
   --popover: #ffffff;
   --popover-foreground: var(--foreground);
-  --primary: #626d0d;
+  --primary: #99600d;
   --primary-foreground: #ffffff;
-  --secondary: #e8e9e2;
-  --secondary-foreground: #41443b;
-  --muted: #eceee7;
-  --muted-foreground: #676c60;
-  --accent: #e5e8dc;
-  --accent-foreground: #292e22;
-  --destructive: #b64343;
-  --border: #dcdfd4;
-  --input: #c7ccbd;
-  --ring: #7c891b;
-  --waveform: #7a77bd;
-  --playhead: #7b891b;
-  --canvas: #f0f1eb;
-  --surface-raised: #ffffff;
-  --mint: #2a7e67;
-  --sidebar: #eceee7;
-  --sidebar-foreground: #41443b;
+  --secondary: #e5e8eb;
+  --secondary-foreground: #424a54;
+  --muted: #eceef0;
+  --muted-foreground: #626c78;
+  --accent: #f3e7d2;
+  --accent-foreground: #68420c;
+  --destructive: #ac4545;
+  --destructive-foreground: #fffafa;
+  --border: #d4d9df;
+  --input: #adb6c1;
+  --ring: #99600d;
+  --waveform: #7664aa;
+  --waveform-foreground: #ffffff;
+  --canvas: #e7eaee;
+  --surface-raised: var(--card);
+  --readout: #99600d;
+  --readout-glow: transparent;
+  --mint: #18735a;
+  --mint-foreground: #ffffff;
+  --playhead: var(--mint);
+  --sidebar: #e9ecef;
+  --sidebar-foreground: #424a54;
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: #e1e5d7;
-  --sidebar-accent-foreground: #292e22;
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
+
+  /* Musical data colors are distinct from action and playback states. */
+  --track-drums: #947030;
+  --track-audio: #3c7783;
+  --track-bass: #6f803e;
+  --track-notes: #806a9c;
+  --track-melody: #5e7697;
+  --track-harmony: #946473;
+  --track-layer: #787e55;
+
+  /* Recognizable ivory/charcoal keys stay physical in either theme. */
+  --key-white: #dce1e7;
+  --key-white-foreground: #303943;
+  --key-border: #abb5c1;
+  --key-black: #252c35;
+  --key-black-foreground: #e8edf3;
+  --key-black-border: #171d24;
 }
 
 .dark {
   color-scheme: dark;
-  --background: #191b1b;
-  --foreground: #edeee8;
-  --card: #222525;
-  --card-foreground: var(--foreground);
-  --popover: #262929;
-  --popover-foreground: var(--foreground);
-  --primary: #d5ed75;
-  --primary-foreground: #20250e;
-  --secondary: #303433;
-  --secondary-foreground: #e5e9e2;
-  --muted: #292d2b;
-  --muted-foreground: #a4aba4;
-  --accent: #343a32;
-  --accent-foreground: #f2f5ed;
-  --destructive: #ee9292;
-  --border: #353b36;
-  --input: #4c554b;
-  --ring: #d5ed75;
-  --waveform: #b6a3e4;
-  --playhead: #d5ed75;
-  --canvas: #191b1b;
-  --surface-raised: #222525;
-  --mint: #7ed6b0;
-  --sidebar: #1e2120;
-  --sidebar-foreground: #d9ded6;
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: #30362c;
-  --sidebar-accent-foreground: #f1f4eb;
-  --sidebar-border: var(--border);
-  --sidebar-ring: var(--ring);
+  --readout: #ffc47a;
+  --readout-glow: #ffac4340;
+  --background: #171a1f;
+  --foreground: #e9edf2;
+  --card: #20252c;
+  --popover: #272d35;
+  --primary: #ffbc62;
+  --primary-foreground: #2a1b0c;
+  --secondary: #2b323b;
+  --secondary-foreground: #e0e6ee;
+  --muted: #252b33;
+  --muted-foreground: #a0adbc;
+  --accent: #3a3023;
+  --accent-foreground: #ffdcaa;
+  --destructive: #e59b95;
+  --destructive-foreground: #341c1a;
+  --border: #343e4a;
+  --input: #526071;
+  --ring: var(--primary);
+  --waveform: #b3a1f0;
+  --waveform-foreground: #211c32;
+  --canvas: #11151a;
+  --mint: #6ce7bb;
+  --mint-foreground: #10271f;
+  --sidebar: #1b2027;
+  --sidebar-foreground: #d4dde7;
+
+  --track-drums: #eabb72;
+  --track-audio: #70ccd7;
+  --track-bass: #8bd4ae;
+  --track-notes: #b8a1ed;
+  --track-melody: #8baded;
+  --track-harmony: #e6a1b4;
+  --track-layer: #c3c58e;
 }
 
 @layer base {
@@ -162,9 +189,7 @@
   height: 40px;
   border-radius: 4px;
 }
-.project-tone-0 { color: var(--primary); background: color-mix(in oklch, var(--primary) 12%, var(--card)); }
-.project-tone-1 { color: var(--mint); background: color-mix(in oklch, var(--mint) 12%, var(--card)); }
-.project-tone-2 { color: var(--waveform); background: color-mix(in oklch, var(--waveform) 12%, var(--card)); }
+.project-symbol { color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, var(--card)); }
 @media (hover: hover) {
   .project-card:hover {
     background: var(--accent);
@@ -223,25 +248,25 @@
   to { transform: rotate(1deg); }
 }
 .piano-key {
-  background: #c5c6c1;
-  color: #292929;
-  border-color: #8b8c87;
-  border-right: 2px solid #8b8c87;
+  background: var(--key-white);
+  color: var(--key-white-foreground);
+  border-color: var(--key-border);
+  border-right: 2px solid var(--key-border);
   touch-action: none;
 }
 .piano-key.is-black {
-  background: #333;
-  color: #ddd;
-  border-color: #222;
-  border-right: 12px solid #b5b6af;
+  background: var(--key-black);
+  color: var(--key-black-foreground);
+  border-color: var(--key-black-border);
+  border-right: 12px solid var(--key-border);
   padding-right: 4px;
 }
 .piano-key:active, .piano-key[data-active='true'] {
-  background: var(--waveform);
-  color: var(--foreground);
+  background: var(--mint);
+  color: var(--mint-foreground);
 }
 .audition-key[data-active='true'] {
-  box-shadow: inset -3px 0 var(--waveform);
+  box-shadow: inset -3px 0 var(--mint);
 }
 .piano-row-band {
   background: color-mix(in oklch, var(--muted) 65%, var(--background));

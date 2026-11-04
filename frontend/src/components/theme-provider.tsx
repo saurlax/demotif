@@ -23,7 +23,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
     document.documentElement.style.colorScheme = resolvedTheme
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content',
-      resolvedTheme === 'light' ? '#f2f4f5' : '#242d35')
+      getComputedStyle(document.documentElement).getPropertyValue('--background').trim())
   }, [resolvedTheme])
 
   useEffect(() => {

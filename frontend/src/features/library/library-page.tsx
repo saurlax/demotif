@@ -200,7 +200,7 @@ export function LibraryPage({ kind }: { kind: 'audio' | 'instruments' }) {
                     <path
                       d={waveforms[entry.id].peaks.map((peak, index) => `M${index + .5},${16 - peak * 15}v${peak * 30}`).join('')}
                       stroke="currentColor" strokeWidth=".75" />
-                    <path className="text-primary" clipPath={`url(#${waveformId}-${entry.id})`}
+                    <path className="text-mint" clipPath={`url(#${waveformId}-${entry.id})`}
                       d={waveforms[entry.id].peaks.map((peak, index) => `M${index + .5},${16 - peak * 15}v${peak * 30}`).join('')}
                       stroke="currentColor" strokeWidth=".75" />
                   </>}
