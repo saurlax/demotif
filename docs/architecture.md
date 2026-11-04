@@ -77,9 +77,11 @@ project and changes the draft's base. Examples require Save as until copied. Med
 immutable blob keys are retained. Saving advances a baseline operation and checkpoint without rewriting prior history.
 Conflicts and failures retain the editable draft and departure protection.
 
-Navigation uses Next route entry points and document navigation. This intentionally preserves native `beforeunload`
-confirmation on home/project links and browser Back without a custom duplicate prompt. It covers accepted unsaved edits,
-pending operations/uploads/saves, and uncommitted inputs. Clean saved-project-to-draft redirects replace the document URL.
+Navigation uses Next route entry points and document navigation. Home/project links use a shared unsaved-changes dialog,
+because embedded browsers may silently cancel native departure dialogs. Cancellation retains the workspace; confirmation
+removes the beforeunload handler for that departure to avoid a second prompt. Refresh, tab closure and browser Back retain
+native `beforeunload` protection where the browser supports it. Dirty checks cover accepted unsaved edits, pending
+operations/uploads/saves, and uncommitted inputs. Clean saved-project-to-draft redirects replace the document URL.
 The studio remains a browser-only client boundary so AudioContext, Workers, matchMedia and local theme state are never
 executed during server prerendering. Existing studio layout, motion and editing geometry are retained.
 
