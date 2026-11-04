@@ -8,6 +8,7 @@ import {
   produce,
   startProducer,
   requireRun,
+  append,
 } from "./producer";
 import { documentSchema } from "@/shared/schema";
 const sandbox = vi.hoisted(() => ({ value: undefined as unknown }));
@@ -184,4 +185,24 @@ it('returns actionable version conflicts from vocal tools without scheduling syn
   const result = await vocalTools(db, project.id).render_vocal.execute!(
     { source_id: 'singer', expected_version: project.version + 1 }, { toolCallId: 'render', messages: [], context: {} })
   expect(result).toMatchObject({ code: 'version_conflict', current_version: project.version, action: expect.stringContaining('Do not guess') })
+})
+
+it('carries lyric-only planning replies into subsequent composition requests', async () => {
+  const project = createProject(db, 'Lyrics first')
+  db.run("INSERT INTO producer_runs (id,project_id,base_version,prompt,status,commands,state,applied,created_at) VALUES (?,?,1,?,'complete','[]',NULL,0,?)",
+    'lyrics-plan', project.id, 'Write the lyrics first', new Date().toISOString())
+  append(db, 'lyrics-plan', { type: 'reply', text: 'LYRIC_PLAN: 星光化成信号' })
+  const mock = model([[finish('stop')]])
+  await produce(db, project, 'Arrange these lyrics', new AbortController().signal, () => {}, mock)
+  expect(JSON.stringify(mock.doStreamCalls[0].prompt)).toContain('LYRIC_PLAN: 星光化成信号')
+})
+
+it('acknowledges accepted IDs and counts without echoing every note after each edit', () => {
+  const session = createProducerTools(documentSchema.parse({}), () => {})
+  const result = session.propose([{ type: 'source.add', source: { id: 'pattern', kind: 'notes', duration: 32,
+    notes: Array.from({ length: 64 }, (_, i) => ({ id: `n${i}`, pitch: 60, start: i / 2, duration: 0.25 })) } }])
+  expect(result).toMatchObject({ status: 'staged_for_review', staged_command_count: 1,
+    project_summary: { sources: [{ id: 'pattern', duration: 32, note_count: 64 }] } })
+  expect(JSON.stringify(result)).not.toContain('"pitch"')
+  expect(session.getDocument().sources[0].notes).toHaveLength(64)
 })

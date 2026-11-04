@@ -134,7 +134,20 @@ export function createProducerTools(
       count: parsed.length,
       status: "proposed",
     });
-    return { status: "staged_for_review", project: staged, ...context };
+    return {
+      status: "staged_for_review",
+      staged_command_count: commands.length,
+      ...context,
+      project_summary: {
+        tempo: staged.tempo,
+        time_signature: staged.time_signature,
+        tracks: staged.tracks.map((track) => ({ id: track.id, name: track.name, clip_count: track.clips.length })),
+        sources: staged.sources.map((source) => ({ id: source.id, name: source.name, kind: source.kind, duration: source.duration, note_count: source.notes.length })),
+        parts: staged.parts.map((part) => ({ id: part.id, name: part.name, source_id: part.source_id })),
+        sections: staged.sections,
+      },
+      // inspect_project remains available when exact notes or clip geometry are needed.
+    };
   }
   const tools = {
     inspect_project: tool({
@@ -277,7 +290,7 @@ export async function produce(
   const history: ModelMessage[] = [];
   for (const prior of db
     .all<RunRow>(
-      "SELECT * FROM producer_runs WHERE project_id=? AND status='complete' AND applied=1 ORDER BY created_at",
+      "SELECT * FROM producer_runs WHERE project_id=? AND status='complete' AND (applied=1 OR json_array_length(commands)=0) ORDER BY created_at",
       p.id,
     )
     .slice(-8)) {
