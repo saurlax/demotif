@@ -10,6 +10,7 @@ browser owns real-time audio.
 - `src/server/` — SQLite, typed commands/history, drafts, media, AI SDK producer and audio jobs.
 - `src/audio/` — browser DSP, Web Audio graph and Workers.
 - `resources/` — built-in sound catalog/media and licenses.
+- `workers/singing/` — optional Python 3.11/native PyTorch singing inference subprocess; no HTTP server.
 - `analysis/` — optional Python 3.13/librosa transcription subprocess; no Python HTTP server.
 - `data/` — ignored local database, media and example packs.
 - `openspec/` — existing specs and future proposals. `docs/architecture.md` describes current runtime boundaries.
@@ -25,6 +26,7 @@ npm test                           # browser audio + Node service tests
 npm run typecheck
 npm run lint
 uv sync --project analysis         # optional offline transcription only
+uv sync --project workers/singing --python 3.11 # optional singing inference
 uv run --project analysis pytest
 npm run migrate:local -- /path/to/legacy-server # copy external legacy state; retain originals
 ```
@@ -61,7 +63,7 @@ invariants above when they apply.
 
 - TypeScript: strict, `erasableSyntaxOnly` (no parameter properties / enums), path alias `@/`.
 - Node services own SQLite transactions. Runtime-validate all command/provider boundaries with shared Zod schemas.
-- Python is limited to the optional analysis subprocess; retain bounded input/output and public type hints.
+- Python is limited to optional analysis and native singing inference subprocesses; retain explicit file/JSON protocols and public type hints. Non-real-time singing inference runs server-side; browser audio remains responsible for transport, instrumental DSP and mixing.
 - Do not add dependencies that are not used by the current change.
 
 ## Interface rules
@@ -73,15 +75,15 @@ invariants above when they apply.
   share one geometry; regenerate assets with `uv run scripts/generate_brand.py`. Preserve the aspect ratio and
   monochrome treatment; navigation displays it at 18px high. Font licensing is retained in `branding/OFL.txt`.
 - Customize the shared shadcn/Base UI tokens and components directly, including the home page, global library,
-  studio, buttons, inputs, cards, and dialogs. Use Geist typography, neutral charcoal/silver surfaces, amber primary actions,
+  studio, buttons, inputs, cards, and dialogs. Use Geist typography, cool slate/silver surfaces, blue primary actions,
   mint playback/status feedback, and readable track/source colors. Take layout cues from DJ decks and samplers:
-  clear control groups, precise scales, compact pads, and thin separators. Use compact seven-segment time/tempo readouts and LED state indicators, with restrained amber/mint glow
+  clear control groups, precise scales, compact pads, and thin separators. Use compact seven-segment time/tempo readouts and LED state indicators, with restrained blue/mint glow
   on real readouts and active states. Keep ordinary labels in Geist. Avoid beveled controls, gradient
   toolbars, inset shadows, ambient glows, and hover lifts; color and outlines communicate state. Do not add
   decorative turntables or fake meters. Home and library layouts stay restrained
   within this same visual system; restrained does not mean leaving their old styling unchanged.
-  Keep all colors in the shared light/dark tokens in `src/app/globals.css`: amber for actions/selection, mint for
-  playback and ready states, muted musical hues for track/note data. Reuse track tokens in clip/library/drag previews;
+  Keep all colors in the shared light/dark tokens in `src/app/globals.css`: blue for actions/selection, mint for
+  playback and ready states, muted blue/teal/green hues for track/note data. Keep panel backgrounds cool and avoid warm red/brown tints; use Oklab mixing for surface blends to avoid hue shifts. Reuse track tokens in clip/library/drag previews;
   preserve stored custom colors. Home project icons use the brand color rather than arbitrary alternating accents.
   Keep musical editing geometry stable during interaction animations; honor reduced motion.
   Side panels enter and exit horizontally from their own edge (Library left, Producer right). Animate
@@ -100,6 +102,7 @@ invariants above when they apply.
 - Do not add default descriptions, subtitles, slogans, explanatory cards, duplicate labels, decorative numbering,
   or repeated bilingual headings. A title and its controls are normally enough. Keep concise empty/loading states,
   actionable errors, units, unavailable-feature reasons, and help that changes an actual user decision.
+- Show errors through the shared top-center toast notifications; do not insert error banners or error paragraphs into studio toolbars, panels, or dialogs. Keep invalid-field styling, disabled actions and visually hidden field error descriptions accessible. Deduplicate repeated errors from polling or typing.
 - Accessibility-only descriptions may remain visually hidden. Do not remove accessible names or required dialog
   semantics to satisfy the no-description rule. Explain necessary constraints at the relevant control, not everywhere.
 - Use the available workspace width: wrap controls, stack settings, or allow scoped scrolling when space is tight.
@@ -165,10 +168,10 @@ invariants above when they apply.
   Clip button, Notes/Drums footer buttons, or a save-to-library toolbar icon. Keep clip placement and drag-back
   library behavior distinct from opening the library.
 - Clip editors reserve their width for musical content, without a permanent parameter sidebar. Clicking a piano
-  note opens an anchored parameter popover; sound/synth/sampler and clip settings open from the toolbar in a dialog.
+  note or existing drum hit opens a centered modal dialog for note parameters; sound/synth/sampler and clip settings open from the toolbar in a dialog.
   Prefer sliders for continuous parameters, preserve keyboard control and readable values, and persist once on
   release instead of issuing a command for every intermediate slider position. Dragging/resizing notes must not
-  open the inspector; popup shortcuts must not also edit notes or close the underlying editor.
+  open the inspector; modal shortcuts must not also edit notes or close the underlying editor.
 - Studio library clips and drag previews share the same compact card content: name, clip color, and real
   note/waveform preview for the saved source range. Library drags use the same pointer-driven floating
   card and sway animation as arrangement moves through the shared `ClipDragPreview` component, including
@@ -185,3 +188,6 @@ invariants above when they apply.
 - Audio clip editors use a fixed musical time scale with a bar ruler and horizontal scrolling, matching note
   editors. Never squeeze an entire long recording into the available editor width. Waveform density follows
   its rendered width, strokes stay in screen pixels, and the loop cursor uses the same time-to-pixel mapping.
+
+- Vocal note editors put all entered syllables inside the selected note by default, preserving its geometry and following notes. Do not expose a placement-mode selector or require additional notes for phrase entry. Keep an explicit equal-note Split action. Whole-clip Lyrics remains a bulk assignment dialog that preserves existing grouping. Continuations sustain only the final syllable. Preserve matching Pinyin/phoneme overrides on untouched assignments. Apply changes atomically, keep failed edits available, and return focus to the edited note after success.
+- Piano and drum editors use right-click to delete notes/hits. Left-click selects existing notes/hits or creates on empty space; double-click does not delete. Duration edits and resizing snap to the editor grid, and duration readouts use at most two decimal places without rewriting imported timing merely on opening controls.
