@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useErrorToast } from '@/hooks/use-error-toast'
+import { useState, useEffect } from 'react'
 import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { Source } from '@/types/project'
+import { listVocalVoices } from '@/lib/api'
+import type { VocalVoice } from '@/types/vocal'
 import { selectClass } from './controls'
 
 export interface SoundPreset {
@@ -19,6 +22,8 @@ export interface CreateClipOptions {
   presetId: string
   name: string
   duration: number
+  voiceId?: string
+  language?: string
 }
 
 export function presetsForType(catalog: SoundPreset[], kind: Source['kind']) {
@@ -41,8 +46,21 @@ export function CreateClipDialog({ catalog, loading, catalogError, onRetry, onCr
   const [duration, setDuration] = useState(16)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const [voices, setVoices] = useState<VocalVoice[]>([])
+  const [voiceId, setVoiceId] = useState('')
+  const [voiceError, setVoiceError] = useState('')
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    void listVocalVoices().then((items) => { if (active) { setVoices(items); setVoiceError('') } })
+      .catch((e: Error) => { if (active) setVoiceError(e.message) })
+    return () => { active = false }
+  }, [open])
+  const voice = voices.find((v) => v.id === voiceId) ?? voices.find((v) => v.ready)
+  const vocal = kind === 'vocal'
   const presets = presetsForType(catalog, kind)
   const preset = presets.find((item) => item.id === presetId) ?? presets[0]
+  useErrorToast(open ? error || (catalogError && !vocal ? 'Could not load sounds.' : '') || (vocal ? voiceError || voice?.reason : '') : undefined, 'create-clip:error')
 
   return (
     <Dialog open={open} onOpenChange={(next) => {
@@ -56,10 +74,10 @@ export function CreateClipDialog({ catalog, loading, catalogError, onRetry, onCr
         <DialogHeader><DialogTitle>Create clip</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(event) => {
           event.preventDefault()
-          if (!preset || pending) return
+          if ((vocal ? !voice?.ready : !preset) || pending) return
           setPending(true)
           setError('')
-          void onCreate({ kind, presetId: preset.id, name: name.trim() || preset.name, duration })
+          void onCreate({ kind, presetId: vocal ? '' : preset!.id, name: name.trim() || (vocal ? 'Vocal' : preset!.name), duration, voiceId: voice?.id, language: voice?.languages[0] })
             .then(() => { setOpen(false); setName('') })
             .catch((e) => setError(e instanceof Error ? e.message : 'Could not create clip.'))
             .finally(() => setPending(false))
@@ -69,12 +87,21 @@ export function CreateClipDialog({ catalog, loading, catalogError, onRetry, onCr
               <Label htmlFor="create-clip-type">Type</Label>
               <select id="create-clip-type" className={`${selectClass} w-full`} value={kind}
                 onChange={(event) => { setKind(event.target.value as Source['kind']); setPresetId('') }}>
+                <option value="vocal">Vocal</option>
                 <option value="notes">Instrument</option>
                 <option value="drums">Drums</option>
                 <option value="audio">Audio sample</option>
               </select>
             </div>
-            <div className="space-y-1.5">
+            {vocal ? <div className="space-y-1.5">
+              <Label htmlFor="create-clip-voice">Voice</Label>
+              <select id="create-clip-voice" className={`${selectClass} w-full`} value={voice?.id ?? ''}
+                onChange={(event) => setVoiceId(event.target.value)}>
+                {!voices.length && <option value="">No voice installed</option>}
+                {voices.map((v) => <option key={v.id} value={v.id} disabled={!v.ready}>{v.name} · {v.languages.join(', ')}</option>)}
+              </select>
+              {voice?.usage && <p className="text-xs text-muted-foreground">{voice.usage}</p>}
+            </div> : <div className="space-y-1.5">
               <Label htmlFor="create-clip-sound">{kind === 'drums' ? 'Drum kit' : kind === 'audio' ? 'Sample' : 'Sound'}</Label>
               <select id="create-clip-sound" className={`${selectClass} w-full`} value={preset?.id ?? ''}
                 disabled={loading || !presets.length} onChange={(event) => setPresetId(event.target.value)}>
@@ -86,10 +113,10 @@ export function CreateClipDialog({ catalog, loading, catalogError, onRetry, onCr
                   </optgroup>
                 ))}
               </select>
-            </div>
+            </div>}
             <div className="space-y-1.5">
               <Label htmlFor="create-clip-name">Name</Label>
-              <Input id="create-clip-name" value={name} placeholder={preset?.name ?? 'Untitled'}
+              <Input id="create-clip-name" value={name} placeholder={vocal ? 'Vocal' : preset?.name ?? 'Untitled'}
                 onChange={(event) => setName(event.target.value)} maxLength={200} />
             </div>
             {kind !== 'audio' && <div className="space-y-1.5">
@@ -99,13 +126,10 @@ export function CreateClipDialog({ catalog, loading, catalogError, onRetry, onCr
                 onChange={(event) => setDuration(Number(event.target.value))} />
             </div>}
           </fieldset>
-          {catalogError && <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
-            Could not load sounds.<Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry</Button>
-          </div>}
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {catalogError && !vocal && <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry sounds</Button>}
           <DialogFooter>
             <DialogClose render={<Button variant="outline" disabled={pending} />}>Cancel</DialogClose>
-            <Button type="submit" disabled={pending || loading || !preset || catalogError}>
+            <Button type="submit" disabled={pending || (vocal ? !voice?.ready : loading || !preset || catalogError)}>
               {pending ? <Loader2 className="animate-spin" /> : <Plus />}Create clip
             </Button>
           </DialogFooter>

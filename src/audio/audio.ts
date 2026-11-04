@@ -65,6 +65,24 @@ export class AudioEngine {
   }
   async prepare(assets: Asset[]) {
     const generation = this.loadGeneration
+    for (const asset of assets.filter((a) => a.phrases && !this.buffers.has(a.id))) {
+      const phrases = asset.phrases!
+      const parts = phrases.map((p, index) => ({ ...asset, id: `${asset.id}:phrase:${index}`, phrases: undefined, url: p.url }))
+      await this.prepare(parts)
+      if (generation !== this.loadGeneration) return
+      const rate = this.getContext().sampleRate
+      const duration = Math.max(asset.duration, ...parts.map((p, i) => phrases[i].offset + this.buffer(p).duration))
+      const channels = Math.max(1, ...parts.map((p) => this.buffer(p).numberOfChannels))
+      const joined = this.getContext().createBuffer(channels, Math.ceil(duration * rate), rate)
+      for (const [i, part] of parts.entries()) {
+        const buffer = this.buffer(part), offset = Math.round(phrases[i].offset * rate)
+        for (let channel = 0; channel < channels; channel++) {
+          const target = joined.getChannelData(channel), data = buffer.getChannelData(Math.min(channel, buffer.numberOfChannels - 1))
+          for (let sample = Math.max(0, -offset); sample < data.length && sample + offset < target.length; sample++) target[sample + offset] += data[sample]
+        }
+      }
+      this.store(asset.id, joined)
+    }
     const sources = assets.flatMap((a) =>
       a.drumSamples?.length
         ? a.drumSamples.map((row) => ({
@@ -332,7 +350,7 @@ export class AudioEngine {
     const ctx = this.getContext()
     if (ctx.state !== 'running') await ctx.resume()
     if (generation !== this.partGeneration) return false
-    if (asset.url || asset.drumSamples?.length) await this.prepare([asset])
+    if (asset.url || asset.phrases || asset.drumSamples?.length) await this.prepare([asset])
     if (generation !== this.partGeneration) return false
     const buffer = await this.render(asset)
     if (generation !== this.partGeneration) return false

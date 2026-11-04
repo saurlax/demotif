@@ -1,10 +1,10 @@
+import { notifyError } from '@/lib/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Library,
   Upload,
   SlidersHorizontal,
-  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
@@ -66,8 +66,7 @@ export function StudioPage() {
       navigate(`/studio/${project.id}`, { replace: true })
     }
   }, [project, projectId, queryClient])
-  const [notice, setNotice] = useState<string | null>(null),
-    [library, setLibrary] = useState(false),
+  const [library, setLibrary] = useState(false),
     [editor, setEditor] = useState<string | null>(null),
     [mixer, setMixer] = useState<string | null>(null),
     [exporting, setExporting] = useState(false),
@@ -84,7 +83,7 @@ export function StudioPage() {
     current = useRef(project),
     queue = useRef<Promise<void>>(Promise.resolve())
   current.current = project
-  const onError = useCallback((message: string) => setNotice(message), [])
+  const onError = useCallback((message: string) => { notifyError(message) }, [])
   const audio = useAudioSession(project, onError)
   const selectedClip = useStudioStore((s) => s.selectedClipId)
   const source = project?.document.sources.find((s) => s.id === editor)
@@ -99,21 +98,21 @@ export function StudioPage() {
     [queryClient],
   )
   const commit = useCallback(
-    (commands: ProducerCommand[]) => {
+    (commands: ProducerCommand[], throwOnError = false) => {
       const finishSave = saves.begin()
       const id = projectId
       const run = async () => {
         if (!current.current?.is_draft || current.current.id !== id) return
-        setNotice(null)
         setBusy(true)
         audio.engine.stopPart()
         try {
           const result = await applyBatch(id, current.current.version, commands)
           setProject(result.project)
         } catch (e) {
-          setNotice(e instanceof Error ? e.message : 'Edit failed')
           if (e instanceof ApiError && e.code === 'version_conflict')
             void queryClient.invalidateQueries({ queryKey: ['project', id] })
+          if (throwOnError) throw e
+          onError(e instanceof Error ? e.message : 'Edit failed')
         } finally {
           setBusy(false)
         }
@@ -121,7 +120,7 @@ export function StudioPage() {
       queue.current = queue.current.then(run, run)
       return queue.current.finally(finishSave)
     },
-    [projectId, setProject, queryClient, audio.engine, saves],
+    [projectId, setProject, queryClient, audio.engine, saves, onError],
   )
   useEffect(() => {
     if (params.get('panel') === 'library' || params.get('panel') === 'sounds')
@@ -130,7 +129,6 @@ export function StudioPage() {
   useEffect(() => {
     setEditor(null)
     setMixer(null)
-    setNotice(null)
   }, [projectId])
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -177,7 +175,6 @@ export function StudioPage() {
     if (preparingEdits.current || session.applying) throw new Error('Wait for the current upload or import to finish.')
     saveInFlight.current = true
     setPersisting(true)
-    setNotice(null)
     const run = async () => {
       const draft = current.current
       if (!draft?.is_draft || draft.id !== projectId) throw new Error('The draft is still opening.')
@@ -193,7 +190,7 @@ export function StudioPage() {
       const message = error instanceof ApiError && error.code === 'version_conflict'
         ? 'The project changed in another tab. Your draft is intact; use Save as to keep a separate copy.'
         : error instanceof Error ? error.message : 'Could not save the project.'
-      setNotice(message)
+      onError(message)
       if (error instanceof ApiError && error.code === 'version_conflict')
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       throw new Error(message)
@@ -436,6 +433,7 @@ export function StudioPage() {
             <SlidersHorizontal />
             Mixer
           </Button>
+
           <div className="ml-auto max-w-full">
             <TransportBar
               project={project}
@@ -456,22 +454,6 @@ export function StudioPage() {
             onChange={(e) => void importFiles(e.target.files)}
           />
         </div>
-        {notice && (
-          <div
-            role="alert"
-            className="flex shrink-0 items-center gap-2 border-b bg-destructive/10 px-3 py-2 text-xs text-destructive"
-          >
-            <span className="flex-1">{notice}</span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Dismiss error"
-              onClick={() => setNotice(null)}
-            >
-              <X />
-            </Button>
-          </div>
-        )}
         <div className="relative flex min-h-0 flex-1">
             <PartLibrary
               open={library}
@@ -484,6 +466,15 @@ export function StudioPage() {
               onOpen={openSource}
               onPlace={(id, track, beat) => void placePart(id, track, beat)}
               onCreate={async (options) => {
+                if (options.kind === 'vocal') {
+                  const source: Source = { ...emptySource('vocal'), name: options.name, duration: options.duration,
+                    vocal: { voice_id: options.voiceId!, language: options.language!, syllables: {}, pitch: [], volume: [], vibrato: {} } }
+                  await commit([{ type: 'source.add', source }, { type: 'part.add', part: {
+                    id: crypto.randomUUID(), name: source.name, source_id: source.id, offset: 0, duration: source.duration,
+                  } }])
+                  openSource(source.id)
+                  return
+                }
                 if (!await addPreset(options.presetId, options.kind === 'notes', options))
                   throw new Error('Could not create clip. Please try again.')
               }}

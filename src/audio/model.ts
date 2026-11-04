@@ -19,6 +19,7 @@ export interface DrumSample {
   gain?: number
 }
 export interface Asset {
+  phrases?: { url: string; offset: number }[]
   drumSamples?: DrumSample[]
   id: string
   name: string

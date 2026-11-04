@@ -1,9 +1,12 @@
+import { NOTE_GRID, snapNoteDuration, formatNoteDuration, removeEditorNote } from './note-editing'
+import { resolveVocalSource } from '@/audio/vocal-resolution'
+import { hasDraftChanges } from './save-status'
+import { VocalRenderControls, VocalNoteFields, VocalLyrics, VocalExpression, VocalVoiceSettings } from './vocal-controls'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Play, Square, X, Copy, ArrowUp, ArrowDown, Trash2, SlidersHorizontal } from 'lucide-react'
+import { Play, Square, X, Copy, ArrowUp, ArrowDown, Trash2, SlidersHorizontal, Loader2 } from 'lucide-react'
 import { uploadAudio } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Popover, PopoverContent, PopoverTitle } from '@/components/ui/popover'
 import { ParameterSlider } from './parameter-slider'
 import { Input } from '@/components/ui/input'
 import { AudioEngine, waveform } from '@/audio/audio'
@@ -45,7 +48,7 @@ export function PartEditor({
   source: Source
   clip?: Clip
   engine: AudioEngine
-  commit: (commands: ProducerCommand[]) => Promise<void>
+  commit: (commands: ProducerCommand[], throwOnError?: boolean) => Promise<void>
   onClose: () => void
   onError: (message: string) => void
 }) {
@@ -53,10 +56,14 @@ export function PartEditor({
     [playing, setPlaying] = useState(false)
   const [peaks, setPeaks] = useState<number[]>([]),
     [draftNote, setDraftNote] = useState<Note | null>(null)
+  const [loopStage, setLoopStage] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [noteAnchor, setNoteAnchor] = useState<HTMLElement | null>(null)
-  const noteAnchorRef = useRef<HTMLElement | null>(null)
-  useEffect(() => { if (noteAnchor) noteAnchorRef.current = noteAnchor }, [noteAnchor])
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false)
+  const noteTrigger = useRef<HTMLElement | null>(null)
+  function openNoteEditor(trigger: HTMLElement) {
+    noteTrigger.current = trigger
+    setNoteEditorOpen(true)
+  }
   const [parameterSaving, setParameterSaving] = useState(false)
   const [heldPitch, setHeldPitch] = useState<number | null>(null)
   const keyGesture = useRef<{
@@ -76,10 +83,10 @@ export function PartEditor({
     engine.stopAudition()
     setPlaying(false)
     setSettingsOpen(false)
-    setNoteAnchor(null)
+    setNoteEditorOpen(false)
   }, [interactive, engine])
   const note = source.notes.find((n) => n.id === selected)
-  const step = 0.25,
+  const step = NOTE_GRID,
     scale = source.kind === 'drums' ? 96 : 48,
     rowHeight = 24,
     rulerHeight = 28,
@@ -118,7 +125,7 @@ export function PartEditor({
         ].sort((a, b) => b - a)
       : Array.from({ length: high - low + 1 }, (_, i) => high - i)
   useEffect(() => {
-    if (positioned.current || source.kind !== 'notes' || !canvasScroll.current)
+    if (positioned.current || (source.kind !== 'notes' && source.kind !== 'vocal') || !canvasScroll.current)
       return
     const pitch = source.notes.length
       ? source.notes.reduce((sum, n) => sum + n.pitch, 0) / source.notes.length
@@ -129,17 +136,25 @@ export function PartEditor({
     )
     positioned.current = true
   }, [source.kind, source.notes, high, rowHeight])
-  const update = async (patch: Partial<Source>) => {
+  const update = async (patch: Partial<Source>, throwOnError = false) => {
     if (!unlocked) return
     setParameterSaving(true)
     try {
-      await commit([{ type: 'source.update', source_id: source.id, ...patch }])
+      await commit([{ type: 'source.update', source_id: source.id, ...patch }], throwOnError)
     } finally {
       setParameterSaving(false)
     }
   }
-  const notes = (values: Note[]) => update({ notes: values })
+  const notes = (values: Note[]) => {
+    if (!source.vocal) return update({ notes: values })
+    const ids = new Set(values.map((n) => n.id))
+    return update({ notes: values, vocal: { ...source.vocal,
+      syllables: Object.fromEntries(Object.entries(source.vocal.syllables).filter(([id]) => ids.has(id))),
+      vibrato: Object.fromEntries(Object.entries(source.vocal.vibrato).filter(([id]) => ids.has(id))),
+    } })
+  }
   const audition = (pitch: number) => {
+    if (source.kind === 'vocal') return
     void engine
       .audition(renderSource(source, project.id, project.document.tempo), {
         id: 'preview',
@@ -239,6 +254,8 @@ export function PartEditor({
   useEffect(() => {
     if (!playing || !interactive) return
     let active = true
+    const controller = new AbortController()
+    setLoopStage('Preparing clip')
     useStudioStore.getState().stop()
     const synthetic: Clip = clip ?? {
       id: 'preview',
@@ -264,9 +281,13 @@ export function PartEditor({
     const track = project.document.tracks.find((t) =>
       t.clips.some((c) => c.id === clip?.id),
     )
-    void engine
-      .playPart(
-        renderSource(source, project.id, project.document.tempo),
+    const prepared = async () => {
+      const vocal = source.kind === 'vocal' ? await resolveVocalSource(project, source.id, {
+        synthesize: true, signal: controller.signal, onProgress: (stage) => { if (active) setLoopStage(stage) },
+      }) : undefined
+      if (!active) return
+      await engine.playPart(
+        renderSource(source, project.id, project.document.tempo, vocal),
         renderClip(synthetic, source, project.document.tempo),
         track?.gain ?? 0.7,
         project.document.tempo,
@@ -275,14 +296,19 @@ export function PartEditor({
           ? { project: renderProject(project), trackId: track.id }
           : undefined,
       )
-      .catch((e) => {
+      if (active) setLoopStage(null)
+    }
+    void prepared().catch((e) => {
         if (active) {
           setPlaying(false)
-          onError(String(e))
+          setLoopStage(null)
+          onError(e instanceof Error ? e.message : String(e))
         }
       })
     return () => {
       active = false
+      controller.abort()
+      setLoopStage(null)
       engine.stopPart()
     }
   }, [playing, interactive, source, clip, project, engine, onError])
@@ -308,16 +334,13 @@ export function PartEditor({
     const existing = source.notes.find(
       (n) => n.pitch === pitch && Math.abs(n.start - start) < 1e-5,
     )
-    if (existing && source.kind === 'drums') {
-      void notes(source.notes.filter((n) => n.id !== existing.id))
-      return
-    }
+    if (existing && source.kind === 'drums') return
     const n = {
       id: crypto.randomUUID(),
       pitch,
       start,
       duration: Math.min(
-        source.kind === 'drums' ? 0.2 : 1,
+        source.kind === 'drums' ? step : 1,
         source.duration - start,
       ),
       velocity: 0.8,
@@ -325,6 +348,20 @@ export function PartEditor({
     setSelected(n.id)
     audition(pitch)
     void notes([...source.notes, n])
+  }
+  function deleteNote(id: string) {
+    if (!unlocked || parameterSaving) return
+    cancelGesture.current?.()
+    engine.stopAudition()
+    setNoteEditorOpen(false)
+    setSelected(null)
+    void update(removeEditorNote(source, id))
+    requestAnimationFrame(() => canvasScroll.current?.focus({ preventScroll: true }))
+  }
+  function eraseNote(event: React.MouseEvent, target?: Note) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (target) deleteNote(target.id)
   }
   function drag(e: React.PointerEvent, n: Note) {
     if (e.button !== 0) return
@@ -334,8 +371,8 @@ export function PartEditor({
     cancelGesture.current?.()
     setSelected(n.id)
     const anchor = e.currentTarget as HTMLElement
-    setNoteAnchor(null)
-    if (!unlocked) { setNoteAnchor(anchor); return }
+    setNoteEditorOpen(false)
+    if (!unlocked) { openNoteEditor(anchor); return }
     const x = e.clientX,
       y = e.clientY,
       resize = e.clientX - e.currentTarget.getBoundingClientRect().left > e.currentTarget.clientWidth - 7
@@ -350,10 +387,7 @@ export function PartEditor({
       latest = resize
         ? {
             ...n,
-            duration: Math.max(
-              step,
-              Math.min(source.duration - n.start, n.duration + delta),
-            ),
+            duration: snapNoteDuration(n.duration + delta, source.duration - n.start),
           }
         : {
             ...n,
@@ -388,7 +422,7 @@ export function PartEditor({
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('keydown', key)
       setDraftNote(null)
-      if (!cancelled && !moved) setNoteAnchor(anchor)
+      if (!cancelled && !moved) openNoteEditor(anchor)
       if (!cancelled && latest !== n)
         void notes(
           source.notes.map((item) => (item.id === n.id ? latest : item)),
@@ -449,7 +483,7 @@ export function PartEditor({
         }
         if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
           e.preventDefault()
-          void notes(source.notes.filter((n) => n.id !== selected))
+          deleteNote(selected)
         }
       }}
     >
@@ -468,10 +502,13 @@ export function PartEditor({
         <Button
           size="icon-xs"
           variant={playing ? 'secondary' : 'ghost'}
-          onClick={() => setPlaying(!playing)}
+          onClick={() => {
+            if (!playing && hasDraftChanges(document)) { onError('Apply pending lyric or parameter edits before playback.'); return }
+            setPlaying(!playing)
+          }}
           aria-label={playing ? 'Stop clip' : 'Loop clip'}
         >
-          {playing ? <Square /> : <Play />}
+          {playing && loopStage ? <Loader2 className="animate-spin" /> : playing ? <Square /> : <Play />}
         </Button>
         <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
           {source.kind === 'audio'
@@ -539,10 +576,14 @@ export function PartEditor({
             </Button>
           </>
         )}
+        {source.vocal && <>
+          <VocalLyrics source={source} disabled={!unlocked || parameterSaving} update={(vocal) => update({ vocal })} />
+          <VocalRenderControls project={project} source={source} disabled={parameterSaving} onError={onError} />
+        </>}
         <DialogTrigger render={<Button size="sm" variant="ghost" />}
-          onClick={() => setNoteAnchor(null)}>
+          onClick={() => setNoteEditorOpen(false)}>
           <SlidersHorizontal />
-          {source.kind === 'audio' ? 'Clip settings' : 'Sound'}
+          {source.kind === 'audio' ? 'Clip settings' : source.vocal ? 'Voice' : 'Sound'}
         </DialogTrigger>
         <Button
           className="ml-auto"
@@ -559,7 +600,7 @@ export function PartEditor({
           ref={canvasScroll}
           role="region"
           aria-label="Clip editor timeline"
-          onScroll={() => setNoteAnchor(null)}
+          onContextMenu={(event) => event.preventDefault()}
           className="min-w-0 flex-1 overflow-auto overscroll-contain"
           tabIndex={0}
         >
@@ -610,8 +651,9 @@ export function PartEditor({
                 {pitches.map((p) => (
                   <button
                     key={p}
-                    aria-label={`Preview ${source.kind === 'drums' ? (drumRows.find((r) => r.pitch === p)?.name ?? pitchName(p)) : pitchName(p)}`}
-                    className={`audition-key block w-full touch-none border-b px-2 text-right text-xs ${source.kind === 'notes' ? 'piano-key' : 'bg-muted'} ${[1, 3, 6, 8, 10].includes(p % 12) ? 'is-black' : ''}`}
+                    disabled={source.kind === 'vocal'}
+                    aria-label={`${source.kind === 'vocal' ? 'Pitch' : 'Preview'} ${source.kind === 'drums' ? (drumRows.find((r) => r.pitch === p)?.name ?? pitchName(p)) : pitchName(p)}`}
+                    className={`audition-key block w-full touch-none border-b px-2 text-right text-xs ${source.kind !== 'drums' ? 'piano-key' : 'bg-muted'} ${[1, 3, 6, 8, 10].includes(p % 12) ? 'is-black' : ''}`}
                     data-octave={p % 12 === 0}
                     style={{ height: source.kind === 'drums' ? 32 : rowHeight }}
                     {...keyProps(p)}
@@ -647,7 +689,7 @@ export function PartEditor({
                 {pitches.map((pitch, index) => (
                   <div key={pitch} aria-hidden="true"
                     className="piano-row-band pointer-events-none absolute inset-x-0 border-b"
-                    data-black={source.kind === 'notes' && [1, 3, 6, 8, 10].includes(pitch % 12)}
+                    data-black={source.kind !== 'drums' && [1, 3, 6, 8, 10].includes(pitch % 12)}
                     data-octave={pitch % 12 === 0}
                     style={{ top: rulerHeight + index * (source.kind === 'drums' ? 32 : rowHeight),
                       height: source.kind === 'drums' ? 32 : rowHeight }} />
@@ -697,15 +739,10 @@ export function PartEditor({
                                 height: 24,
                                 opacity: n ? 0.4 + n.velocity * 0.6 : 1,
                               }}
-                              onContextMenu={(event) => {
-                                if (!n) return
-                                event.preventDefault()
-                                setSelected(n.id)
-                                setNoteAnchor(event.currentTarget)
-                              }}
-                              onClick={() => {
-                                setSelected(n?.id ?? null)
-                                add(p, i * step)
+                              onContextMenu={(event) => eraseNote(event, n)}
+                              onClick={(event) => {
+                                if (n) { setSelected(n.id); openNoteEditor(event.currentTarget) }
+                                else add(p, i * step)
                               }}
                             />
                           )
@@ -731,20 +768,17 @@ export function PartEditor({
                           }}
                           onPointerDown={(e) => drag(e, n)}
                           aria-haspopup="dialog"
-                          aria-expanded={selected === n.id && !!noteAnchor}
+                          aria-expanded={selected === n.id && noteEditorOpen}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
                               setSelected(n.id)
-                              setNoteAnchor(e.currentTarget)
+                              openNoteEditor(e.currentTarget)
                             }
                           }}
-                          onDoubleClick={() => {
-                            setNoteAnchor(null)
-                            void notes(source.notes.filter((item) => item.id !== n.id))
-                          }}
+                          onContextMenu={(event) => eraseNote(event, n)}
                         >
-                          {n.duration * scale >= 40 && <span className="pointer-events-none block truncate px-1 text-xs">{pitchName(n.pitch)}</span>}
+                          {n.duration * scale >= 40 && <span className="pointer-events-none block truncate px-1 text-xs">{source.vocal ? (source.vocal.syllables[n.id]?.kind === 'continue' ? '—' : (source.vocal.syllables[n.id] as { lyric?: string })?.lyric || '…') : pitchName(n.pitch)}</span>}
                           <span className="pointer-events-none absolute inset-y-0 right-0 w-1.5 cursor-ew-resize" />
                         </button>
                       )
@@ -754,10 +788,15 @@ export function PartEditor({
           )}
         </div>
         <DialogContent className="studio-edit-surface max-h-[85svh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader><DialogTitle>{source.kind === 'audio' ? 'Clip settings' : 'Sound settings'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{source.kind === 'audio' ? 'Clip settings' : source.vocal ? 'Voice settings' : 'Sound settings'}</DialogTitle></DialogHeader>
           <fieldset disabled={parameterSaving} className="grid min-w-0 gap-4 sm:grid-cols-2">
           <fieldset disabled={!unlocked} className="contents">
-          {source.kind !== 'audio' && (
+          {source.vocal && <>
+            <VocalVoiceSettings source={source} update={(vocal) => update({ vocal })} />
+            <NumberField label="Length · beats" value={source.duration} min={0.25} max={1024} step={0.25}
+              onChange={(duration) => void update({ duration })} disabled={!unlocked || parameterSaving} />
+          </>}
+          {source.kind !== 'audio' && source.kind !== 'vocal' && (
             <>
               <label className="block space-y-1 text-sm text-muted-foreground">
                 Sound
@@ -1143,33 +1182,44 @@ export function PartEditor({
           </fieldset>
         </DialogContent>
       </div>
-      <Popover open={!!noteAnchor && !!note && noteAnchor.isConnected}
-        onOpenChange={(open) => { if (!open) setNoteAnchor(null) }}>
-        {note && <PopoverContent anchor={noteAnchor} side="top" sideOffset={10}
-          className="studio-edit-surface w-72 max-w-[calc(100vw-2rem)] gap-2 p-3"
-          aria-label="Note settings" finalFocus={() => noteAnchorRef.current?.isConnected ? noteAnchorRef.current : false}>
-          <div className="flex items-center justify-between gap-2">
-            <PopoverTitle>{pitchName(note.pitch)}</PopoverTitle>
+      {source.vocal && <VocalExpression source={source} disabled={!unlocked || parameterSaving} update={(vocal) => update({ vocal })} />}
+      <Dialog open={noteEditorOpen && !!note}
+        onOpenChange={(open, details) => {
+          if (open) return
+          if (details.reason !== 'escape-key' && document.querySelector('[data-vocal-note-dirty="true"]')) {
+            details.cancel()
+            return
+          }
+          setNoteEditorOpen(false)
+        }}>
+        {note && <DialogContent showCloseButton={false}
+          className="studio-edit-surface max-h-[85svh] overflow-y-auto sm:max-w-lg"
+          finalFocus={() => noteTrigger.current?.isConnected ? noteTrigger.current : canvasScroll.current ?? false}>
+          <DialogHeader className="flex-row items-center justify-between gap-2">
+            <DialogTitle>{pitchName(note.pitch)}</DialogTitle>
             <Button size="icon-sm" variant="ghost" aria-label="Close note settings"
-              onClick={() => setNoteAnchor(null)}><X /></Button>
-          </div>
+              onClick={() => setNoteEditorOpen(false)}><X /></Button>
+          </DialogHeader>
           {(!unlocked) && <span className="text-xs text-muted-foreground">Shared source locked</span>}
+          {source.vocal && <VocalNoteFields key={`${note.id}:${project.version}`} source={source} noteId={note.id}
+            disabled={!unlocked || parameterSaving} update={(patch) => update(patch, true)}
+            onApplied={() => setNoteEditorOpen(false)} />}
           <ParameterSlider label="Pitch" value={note.pitch} min={0} max={127} format={pitchName}
             disabled={!unlocked || parameterSaving}
             onChange={(pitch) => notes(source.notes.map((n) => n.id === note.id ? { ...n, pitch } : n))} />
-          <ParameterSlider label="Velocity" value={note.velocity} min={0.01} max={1} step={0.01}
+          {!source.vocal && <ParameterSlider label="Velocity" value={note.velocity} min={0.01} max={1} step={0.01}
             format={(value) => `${Math.round(value * 100)}%`} disabled={!unlocked || parameterSaving}
-            onChange={(velocity) => notes(source.notes.map((n) => n.id === note.id ? { ...n, velocity } : n))} />
-          <ParameterSlider label="Duration" value={note.duration} min={Math.min(0.0625, note.duration)}
-            max={source.duration - note.start} step={0.0625} format={(value) => `${Number(value.toFixed(4))} beats`}
+            onChange={(velocity) => notes(source.notes.map((n) => n.id === note.id ? { ...n, velocity } : n))} />}
+          <ParameterSlider label="Duration" value={note.duration} min={Math.min(step, source.duration - note.start)}
+            max={snapNoteDuration(source.duration - note.start, source.duration - note.start)} step={step} format={formatNoteDuration}
             disabled={!unlocked || parameterSaving}
-            onChange={(duration) => notes(source.notes.map((n) => n.id === note.id ? { ...n, duration } : n))} />
+            onChange={(duration) => notes(source.notes.map((n) => n.id === note.id ? { ...n, duration: snapNoteDuration(duration, source.duration - note.start) } : n))} />
           <Button size="sm" variant="ghost" className="justify-start" disabled={!unlocked || parameterSaving}
-            onClick={() => { setNoteAnchor(null); void notes(source.notes.filter((n) => n.id !== note.id)) }}>
+            onClick={() => deleteNote(note.id)}>
             <Trash2 />Delete note
           </Button>
-        </PopoverContent>}
-      </Popover>
+        </DialogContent>}
+      </Dialog>
     </section>
     </Dialog>
   )

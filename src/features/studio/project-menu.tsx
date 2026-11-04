@@ -1,3 +1,5 @@
+import { useErrorToast } from '@/hooks/use-error-toast'
+import { notifyError } from '@/lib/notifications'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, ChevronDown, Download, FolderOpen, Loader2, Save, SaveAll } from 'lucide-react'
@@ -25,16 +27,15 @@ export function ProjectMenu({ project, saving, busy, exporting, onSave, onSaveAs
   const [openProject, setOpenProject] = useState(false)
   const [search, setSearch] = useState('')
   const [saveName, setSaveName] = useState(project.name)
-  const [error, setError] = useState('')
   const example = !!project.draft_example_id || !project.draft_base_id
   const projects = useQuery({ queryKey: ['projects'], queryFn: listProjects, enabled: openProject })
   useEffect(() => {
     if (saveAsOpen) {
       setSaveName(project.name)
-      setError('')
       setOpenProject(false)
     }
   }, [saveAsOpen, project.name])
+  useErrorToast(openProject && projects.error ? 'Could not load projects.' : undefined, 'open-project:error')
   const matches = projects.data?.filter((item) => item.name.toLowerCase().includes(search.trim().toLowerCase()))
   return <>
     <DropdownMenu>
@@ -65,12 +66,11 @@ export function ProjectMenu({ project, saving, busy, exporting, onSave, onSaveAs
           event.preventDefault()
           if (!saveName.trim() || saving) return
           setSaveName(saveName.trim())
-          void onSaveAs(saveName.trim()).then(() => onSaveAsOpenChange(false)).catch((error) => setError(String(error.message ?? error)))
+          void onSaveAs(saveName.trim()).then(() => onSaveAsOpenChange(false)).catch(notifyError)
         }}>
           <div className="space-y-1.5"><Label htmlFor="save-project-name">Name</Label>
             <Input id="save-project-name" data-saved-value={project.name} value={saveName}
               onChange={(event) => setSaveName(event.target.value)} maxLength={200} disabled={saving} autoFocus /></div>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={saving} onClick={() => onSaveAsOpenChange(false)}>Cancel</Button>
             <Button type="submit" disabled={saving || !saveName.trim()}>{saving ? <Loader2 className="animate-spin" /> : <Save />}Save</Button>
@@ -84,8 +84,7 @@ export function ProjectMenu({ project, saving, busy, exporting, onSave, onSaveAs
         <Input aria-label="Search projects" placeholder="Search projects" value={search} onChange={(event) => setSearch(event.target.value)} />
         <div className="max-h-[55svh] overflow-y-auto">
           {projects.isPending && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading…</p>}
-          {projects.error && <div role="alert" className="text-sm text-destructive">Could not load projects.
-            <Button variant="ghost" onClick={() => void projects.refetch()}>Retry</Button></div>}
+          {projects.error && <Button variant="outline" onClick={() => void projects.refetch()}>Retry</Button>}
           {matches?.map((item) => <a key={item.id} href={`/studio/${item.id}`}
             className="flex min-h-12 items-center gap-3 border-b px-2 py-3 text-sm last:border-0 hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />

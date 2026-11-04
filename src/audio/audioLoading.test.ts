@@ -158,3 +158,29 @@ it('deduplicates shared multi-sample drum rows across Part variants', async () =
   expect(decode).toHaveBeenCalledTimes(3)
   engine.release()
 })
+
+describe('vocal phrase preparation', () => {
+  it('assembles decoded phrase offsets, clips negative lead and retains gaps, tails and channels', async () => {
+    const buffer = (channels: Float32Array[], rate = 10) => ({
+      numberOfChannels: channels.length, sampleRate: rate, length: channels[0].length,
+      duration: channels[0].length / rate, getChannelData: (channel: number) => channels[channel],
+    }) as AudioBuffer
+    const decoded = [buffer([Float32Array.from([1, 2, 3, 4])]), buffer([Float32Array.from([5, 6, 7]), Float32Array.from([8, 9, 10])])]
+    vi.stubGlobal('AudioContext', class {
+      sampleRate = 10
+      async decodeAudioData() { return decoded.shift()! }
+      createBuffer(channels: number, length: number, rate: number) { return buffer(Array.from({ length: channels }, () => new Float32Array(length)), rate) }
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(1) })))
+    const engine = new AudioEngine()
+    const source: Asset = { id: 'vocal:fingerprint', name: 'Singer', kind: 'import', variant: 0, duration: 1,
+      phrases: [{ url: '/one', offset: -0.1 }, { url: '/two', offset: 0.9 }] }
+    await engine.prepare([source])
+    const result = engine.buffer(source)
+    expect(result.duration).toBe(1.2)
+    expect([...result.getChannelData(0)]).toEqual([2, 3, 4, 0, 0, 0, 0, 0, 0, 5, 6, 7])
+    expect([...result.getChannelData(1)]).toEqual([2, 3, 4, 0, 0, 0, 0, 0, 0, 8, 9, 10])
+    await engine.prepare([source]); expect(fetch).toHaveBeenCalledTimes(2)
+    expect(() => engine.buffer({ ...source, id: 'unrendered' })).toThrow()
+  })
+})
