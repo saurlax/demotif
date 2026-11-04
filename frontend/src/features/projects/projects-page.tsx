@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Disc3, Loader2, Plus, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { navigate } from '@/lib/navigation'
 
 import { ExamplePicker } from './example-picker'
 import { AppShell } from '@/components/app-shell'
@@ -33,7 +33,6 @@ function formatUpdated(value: string) {
 }
 
 export function ProjectsPage() {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState('')
@@ -196,14 +195,14 @@ export function ProjectsPage() {
           </Card>
         )}
         <div className="grid gap-4 @xl:grid-cols-2">
-          {projects?.map((project, index) => (
+          {projects?.map((project) => (
             <Card key={project.id} className="project-card gap-0 py-0">
               <button
                 type="button"
                 onClick={() => navigate(`/studio/${project.id}`)}
                 className="group flex w-full items-center gap-4 p-5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
-                <span className={`project-symbol project-tone-${index % 3}`} aria-hidden="true"><Disc3 className="size-6" /></span>
+                <span className="project-symbol" aria-hidden="true"><Disc3 className="size-6" /></span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-medium" title={project.name}>{project.name}</div>
                   <p className="mt-1 text-xs text-muted-foreground">Updated {formatUpdated(project.updated_at)}</p>

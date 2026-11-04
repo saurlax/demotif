@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowRight, Loader2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { navigate } from '@/lib/navigation'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 
@@ -9,7 +9,6 @@ interface Example { id: string; name: string; tempo: number; tracks: number }
 
 export function ExamplePicker() {
   const [open, setOpen] = useState(false)
-  const navigate = useNavigate()
   const examples = useQuery({
     queryKey: ['examples'], enabled: open,
     queryFn: async (): Promise<Example[]> => {
