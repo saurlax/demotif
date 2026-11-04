@@ -3,6 +3,7 @@ import { Pause, Play, Square, Loader2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useStudioStore } from '@/stores/studio'
 import { Input } from '@/components/ui/input'
+import { SegmentDisplay } from '@/components/segment-display'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu'
 import type { Project } from '@/types/project'
 export function TransportBar({
@@ -46,14 +47,14 @@ export function TransportBar({
       >
         <Square />
       </Button>
-      <span aria-label="Playback time" className="transport-position mx-1 min-w-[8ch] font-mono text-sm tabular-nums">
-        {elapsed}
+      <span aria-label="Playback time" className="transport-position mx-1">
+        <SegmentDisplay value={elapsed} />
       </span>
       <div className="flex shrink-0 items-center gap-1">
         <TempoControl value={project.document.tempo} onChange={onTempo} />
         <DropdownMenu>
           <DropdownMenuTrigger aria-label={`Edit time signature, ${project.document.time_signature}`}
-            render={<Button variant="ghost" className="h-8 w-20 gap-1 font-mono text-base" />}>
+            render={<Button variant="ghost" className="h-8 gap-1 px-2 font-mono text-base" />}>
             {project.document.time_signature}<ChevronDown className="size-3 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-28 max-h-72" align="end">
@@ -92,10 +93,10 @@ function TempoControl({ value, onChange }: { value: number; onChange: (tempo: nu
       onChange(tempo)
   }
   return editing ? (
-    <label className="flex h-8 w-30 shrink-0 items-center gap-2 text-sm">
+    <label className="flex h-8 shrink-0 items-center gap-2 px-2 text-sm">
       <span className="text-muted-foreground">BPM</span>
       <Input aria-label="BPM" type="number" min={20} max={300} step={0.1}
-        className="h-8 min-w-0 flex-1 font-mono text-base md:text-base" autoFocus
+        className="transport-tempo-input h-8 w-[6ch] min-w-0 shrink-0 px-1 font-mono text-base md:text-base" autoFocus
         data-saved-value={value} value={draft} onFocus={(event) => event.currentTarget.select()}
         onChange={(event) => setDraft(event.target.value)} onBlur={() => finish(false)}
         onKeyDown={(event) => {
@@ -107,13 +108,13 @@ function TempoControl({ value, onChange }: { value: number; onChange: (tempo: nu
         }} />
     </label>
   ) : (
-    <Button ref={button} variant="ghost" className="h-8 w-30 justify-start gap-2 px-2" title="Edit tempo"
+    <Button ref={button} variant="ghost" className="h-8 gap-2 px-2" title="Edit tempo"
       aria-label={`Edit tempo, ${value} BPM`} onClick={() => {
         finished.current = false
         setDraft(String(value))
         setEditing(true)
       }}>
-      <span className="text-muted-foreground">BPM</span><span className="font-mono text-base tabular-nums">{value}</span>
+      <span className="text-muted-foreground">BPM</span><SegmentDisplay value={String(value)} />
     </Button>
   )
 }

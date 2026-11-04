@@ -7,10 +7,10 @@ import { ClipNotePreview } from './clip-note-preview'
 export function trackAccent(track: Track, project: Project, index: number) {
   if (track.color) return track.color
   const source = project.document.sources.find((s) => track.clips.some((c) => c.source_id === s.id))
-  if (source?.kind === 'drums') return '#e9b96e'
-  if (source?.kind === 'audio') return '#76bcd2'
-  if (['sub', 'reese', 'electric-bass', 'acid-bass', 'fm-bass', 'organ-bass'].includes(source?.sound ?? '')) return '#82cbb1'
-  return ['#acaae9', '#8bc1d4', '#d89bb0', '#b4c58a'][index % 4]
+  if (source?.kind === 'drums') return 'var(--track-drums)'
+  if (source?.kind === 'audio') return 'var(--track-audio)'
+  if (['sub', 'reese', 'electric-bass', 'acid-bass', 'fm-bass', 'organ-bass'].includes(source?.sound ?? '')) return 'var(--track-bass)'
+  return ['var(--track-notes)', 'var(--track-melody)', 'var(--track-harmony)', 'var(--track-layer)'][index % 4]
 }
 
 export type PreviewClip = Pick<Clip, 'name' | 'source_id' | 'offset' | 'source_duration' | 'length_beats'>
@@ -23,8 +23,8 @@ export function clipPreviewColor(project: Project, sourceId: string | null, trac
     return (!track && placed?.color) || trackAccent(owner, project, project.document.tracks.indexOf(owner))
   }
   const source = project.document.sources.find((s) => s.id === sourceId)
-  if (source?.kind === 'drums') return '#e9b96e'
-  if (source?.kind === 'audio') return '#76bcd2'
+  if (source?.kind === 'drums') return 'var(--track-drums)'
+  if (source?.kind === 'audio') return 'var(--track-audio)'
   return 'var(--waveform)'
 }
 

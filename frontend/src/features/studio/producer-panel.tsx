@@ -184,7 +184,7 @@ export function ProducerPanel({
               <Message align="end">
                 <MessageContent>
                   <MessageHeader>You</MessageHeader>
-                  <Bubble align="end">
+                  <Bubble align="end" variant="tinted">
                     <BubbleContent className="whitespace-pre-wrap text-sm">
                       {run.prompt}
                     </BubbleContent>
