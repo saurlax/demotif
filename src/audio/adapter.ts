@@ -1,3 +1,4 @@
+import type { VocalRenderStatus } from '@/types/vocal'
 import { synthSchema } from '@/shared/schema'
 import type {
   Project as StoredProject,
@@ -15,17 +16,21 @@ export function renderSource(
   source: Source,
   projectId: string,
   tempo: number,
+  vocal?: VocalRenderStatus,
 ): Asset {
   const beat = 60 / tempo
   return {
-    id: source.id,
+    id: source.kind === 'vocal' && vocal?.current && vocal.status === 'ready' ? `${source.id}:vocal:${vocal.fingerprint}` : source.id,
     name: source.name,
     kind:
-      source.kind === 'audio'
+      (source.kind === 'audio' || source.kind === 'vocal')
         ? 'import'
         : source.kind === 'drums'
           ? 'drums'
           : 'keys',
+    phrases: source.kind === 'vocal' && vocal?.current && vocal.status === 'ready' ? vocal.phrases.map((p) => ({
+      url: mediaUrl(projectId, p.asset_id), offset: p.alignment.offset_seconds,
+    })) : undefined,
     variant: 0,
     bpm: tempo,
     duration: source.duration * (source.kind === 'audio' ? 1 : beat),
@@ -78,7 +83,7 @@ export function renderClip(
         : clip.envelope_duration * unit,
   }
 }
-export function renderProject(project: StoredProject): Project {
+export function renderProject(project: StoredProject, vocals: Record<string, VocalRenderStatus> = {}): Project {
   const d = project.document,
     beat = 60 / d.tempo
   const channel = (c: typeof d.mixer.master): MixerChannel => ({
@@ -90,7 +95,7 @@ export function renderProject(project: StoredProject): Project {
       points: l.points.map((p) => ({ ...p, time: p.time * beat })),
     })),
   })
-  const assets = d.sources.map((s) => renderSource(s, project.id, d.tempo))
+  const assets = d.sources.map((s) => renderSource(s, project.id, d.tempo, vocals[s.id]))
   for (const c of d.tracks.flatMap((t) => t.clips))
     if (
       !c.source_id &&
@@ -128,13 +133,20 @@ export function renderProject(project: StoredProject): Project {
       busId: t.bus_id ?? undefined,
       clips: t.clips
         .filter((c) => c.source_id || c.asset_id)
-        .map((c) =>
-          renderClip(
-            c,
-            d.sources.find((s) => s.id === c.source_id),
-            d.tempo,
-          ),
-        ),
+        .map((c) => {
+          const source = d.sources.find((s) => s.id === c.source_id)
+          const clip = renderClip(c, source, d.tempo)
+          const vocal = source && vocals[source.id]
+          if (source?.kind === 'vocal' && vocal?.current && vocal.status === 'ready') {
+            clip.assetId = `${source.id}:vocal:${vocal.fingerprint}`
+            // Full placements retain the model's final release; intentional trims stay exact.
+            if (Math.abs(clip.offset + clip.duration - source.duration * beat) < 1e-6) {
+              const end = Math.max(source.duration * beat, ...vocal.phrases.map((p) => p.alignment.offset_seconds + p.duration_seconds))
+              clip.duration += end - source.duration * beat
+            }
+          }
+          return clip
+        }),
     })),
   }
 }

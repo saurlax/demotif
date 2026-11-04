@@ -1,3 +1,4 @@
+import { useErrorToast } from '@/hooks/use-error-toast'
 import { useCallback, useEffect, useRef } from 'react'
 import { ArrowUp, Check, Loader2, Sparkles, Square, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -60,6 +61,7 @@ export function ProducerPanel({
   useEffect(() => {
     void load().catch((e) => setError(String(e)))
   }, [load, setError])
+  useErrorToast(error, `producer:${project.id}`)
   const active = runs.find((r) => r.status === 'running')
   const activeId = active?.id
   const after = active?.events.at(-1)?.seq ?? 0
@@ -76,6 +78,7 @@ export function ProducerPanel({
       const event: import('./use-producer-session').ProducerEvent = JSON.parse(
         e.data,
       )
+      if (event.name === 'render_vocal') window.dispatchEvent(new CustomEvent('demotif:vocal-render', { detail: { projectId: project.id } }))
       setRuns((current) =>
         current.map((r) =>
           r.id === activeId && !r.events.some((e) => e.seq === event.seq)
@@ -90,7 +93,7 @@ export function ProducerPanel({
     })
     return () => source.close()
     // The stream owns its cursor; reconnect uses the last persisted snapshot.
-  }, [activeId, base, load, setRuns, setError])
+  }, [activeId, base, load, setRuns, setError, project.id])
   async function send() {
     const text = draft.trim()
     if (!text || sending || active) return
@@ -279,11 +282,6 @@ export function ProducerPanel({
               </Message>
             </div>
           ))}
-          {error && (
-            <p role="alert" className="p-2 text-sm text-destructive">
-              {error}
-            </p>
-          )}
         </MessageGroup>
       </div>
       <div className="shrink-0 border-t p-3">

@@ -113,9 +113,21 @@ Stop the old API, then run `npm run migrate:local`. SQLite's backup API copies t
 are copied without overwriting existing destination files. Original local files and configuration are retained. The Node
 adapter also creates a pre-Next.js SQLite backup before initialization. For rollback, stop Next.js and use the retained
 legacy code/state consistently; do not combine two writers. Do not overwrite an existing destination database automatically.
-The migration adds no backend audio renderer, genre shader, or automatic project save.
+There is no general Python backend, genre shader or automatic project save.
 
 ## Deferred work
 
 Microphone capture/count-in, latency compensation, live pitch correction, multi-user access, hosted storage/database,
 and adaptive studio atmospheres remain separate work. Playback/export does not depend on provider availability.
+
+## Optional native singing
+
+`workers/singing/` is a Python 3.11/PyTorch inference package, separate from the optional analysis environment. Next.js `src/server/vocals/` writes immutable accepted-score snapshots, runs one lazy warm JSON Lines child and publishes validated PCM into the existing owned media store. SQLite persists requests, deduplicated phrase jobs and source bindings. Active cancellation terminates the child; a later request lazily starts it again. Startup marks unfinished inference interrupted and dispatches queued work. No public Python API, Redis or generic backend app is introduced.
+
+Vocal sources preserve notes, syllables/continuations, pronunciation, pitch/volume curves and vibrato as typed versioned score data. Derived completion neither increments the score version nor saves the draft. Fingerprints include musical inputs, tempo, model/config/dictionary hashes, pinned runtime, compiler, backend, precision, seed and full-quality sampling settings. Late output remains cached but cannot become current for changed music. Save/Save as remaps derived asset ownership while retaining immutable blobs.
+
+Browser preparation resolves matching phrase assets and assembles them using their explicit source-time offsets. Playback, seeking, clip loops and mix export continue through Web Audio. Arrangement playback with missing/stale vocal audio requires synthesis or explicitly muting the vocal track. The clip-loop action prepares the current source on demand and starts only after matching audio is ready; stopping/closing it cancels requests created by that playback action without cancelling an independently started synthesis. Export prepares full-quality audio against its captured accepted score; version conflicts or inference errors prevent incomplete downloads. Newly ready audio is adopted at the next playback/loop preparation, never injected into a running graph.
+
+The local reference profile is OpenCpop from OpenVPI DiffSinger v1.5.0 with its matching native NSF-HiFiGAN vocoder. It is a user-approved non-commercial Demo, not a production/hosted voice license. Weights stay under ignored `data/models/`; source and terms are documented in `docs/vocal-model-screening.md`. This older profile uses scored F0 and manual/deterministic initial phoneme timing, not a separate automatic tuning predictor. See `workers/singing/README.md` for installation, tests and rollback.
+
+Vocal note editing uses a centered modal dialog. Note-local lyric entry keeps all entered syllables inside the selected note by default, preserving geometry and following assignments. No placement-mode selector or following-note overflow is shown. Optional legacy mode metadata remains readable, and unmarked multiword assignments compile identically. The compiler expands the phrase into dictionary syllables, divides the original note's time into initial equal syllable budgets, and extends only the last syllable over following continuation notes. Consonant/vowel timing defaults remain deterministic, not predicted. An explicit equal-note Split action commits notes and lyrics atomically; the whole-clip Lyrics dialog retains bulk assignment and existing grouping. Pronunciation and phonemes participate in existing render fingerprints and save/undo semantics. Piano and drum editors delete on right-click; duration editing snaps to the quarter-beat grid while readouts use at most two decimals and imported timing stays intact until edited.

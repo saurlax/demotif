@@ -1,6 +1,7 @@
+import { resolveVocalProject } from '@/audio/vocal-resolution'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine } from '@/audio/audio'
-import { durationSeconds, renderProject } from '@/audio/adapter'
+import { renderProject } from '@/audio/adapter'
 import { useStudioStore } from '@/stores/studio'
 import type { Project } from '@/types/project'
 
@@ -25,6 +26,8 @@ export function useAudioSession(
       ),
     [rendered],
   )
+  const preparedEnd = useRef(endSeconds)
+  const playbackGeneration = useRef(0)
   const current = useRef(project)
   const errorRef = useRef(onError)
   useEffect(() => {
@@ -46,17 +49,21 @@ export function useAudioSession(
       setPreparing(false)
       return
     }
+    playbackGeneration.current++
     let active = true,
       frame = 0
     setPreparing(true)
     const start = async (from: number) => {
-      await engine.play(rendered, from)
+      const prepared = await resolveVocalProject(project)
+      if (!active) return
+      preparedEnd.current = Math.max(1, ...prepared.tracks.flatMap((t) => t.clips.map((c) => c.start + c.duration)))
+      await engine.play(prepared, from)
       if (!active) return
       setPreparing(false)
       const tick = () => {
         if (!active) return
         const position = engine.position(),
-          end = endSeconds
+          end = preparedEnd.current
         if (position >= end) {
           useStudioStore.getState().stop()
           return
@@ -80,6 +87,7 @@ export function useAudioSession(
     ).catch(fail)
     return () => {
       active = false
+      playbackGeneration.current++
       cancelAnimationFrame(frame)
       engine.stop()
     }
@@ -87,14 +95,18 @@ export function useAudioSession(
   function seek(beats: number) {
     const state = useStudioStore.getState()
     state.setPosition(beats)
-    if (state.playing && rendered)
-      void engine
-        .play(rendered, (beats * 60) / (current.current?.document.tempo ?? 120))
+    const generation = ++playbackGeneration.current
+    if (state.playing && current.current)
+      void resolveVocalProject(current.current).then((prepared) => {
+        if (generation !== playbackGeneration.current || !useStudioStore.getState().playing) return
+        return engine.play(prepared, (beats * 60) / (current.current?.document.tempo ?? 120))
+      })
         .catch((e) => errorRef.current(String(e)))
   }
   async function exportWav() {
     if (!project || !rendered) return
-    const blob = await engine.export(rendered, durationSeconds(project)),
+    const prepared = await resolveVocalProject(project, { synthesize: true })
+    const blob = await engine.export(prepared, Math.max(1, ...prepared.tracks.flatMap((t) => t.clips.map((c) => c.start + c.duration)))),
       url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

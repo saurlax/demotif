@@ -28,7 +28,7 @@ export function Workspace({
       ) : (
         <Library kind={view} />
       )}
-      <Toaster position="bottom-center" />
+      <Toaster position="top-center" closeButton />
     </Providers>
   );
 }
