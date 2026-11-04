@@ -83,10 +83,34 @@ const drumSample = z.strictObject({
 });
 const sound = z.enum(SOUND_IDS);
 const drumKit = z.enum(["studio", "808", "909", "lofi"]);
+const vocalPoint = z.strictObject({ beat: nonnegative, value: z.number() });
+const syllable = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("syllable"),
+    lyric: z.string().default(""),
+    mode: z.enum(["single", "multiple"]).optional(),
+    pronunciation: z.string().optional(),
+    phonemes: z.array(z.strictObject({
+      symbol: z.string().min(1), duration_beats: positive.optional(),
+    })).optional(),
+  }),
+  z.strictObject({ kind: z.literal("continue") }),
+]);
+export const vocalSchema = z.strictObject({
+  voice_id: id,
+  language: z.string().min(1),
+  syllables: z.record(id, syllable).default({}),
+  pitch: z.array(vocalPoint).default([]), // source-local beats, cents from score pitch
+  volume: z.array(vocalPoint.extend({ value: z.number().min(0).max(2) })).default([]),
+  vibrato: z.record(id, z.strictObject({
+    rate_hz: positive, depth_cents: nonnegative,
+    onset: unit.default(0.5),
+  })).default({}),
+});
 const sourceObject = z.strictObject({
   id: uid(),
   name: name.default("Clip"),
-  kind: z.enum(["notes", "drums", "audio"]).default("notes"),
+  kind: z.enum(["notes", "drums", "audio", "vocal"]).default("notes"),
   duration: positive.default(16),
   asset_id: id.nullable().default(null),
   notes: z.array(noteSchema).max(10000).default([]),
@@ -95,8 +119,45 @@ const sourceObject = z.strictObject({
   synth: synthSchema.default(() => synthSchema.parse({})),
   sampler: samplerSchema.nullable().default(null),
   drum_samples: z.array(drumSample).max(32).default([]),
+  vocal: vocalSchema.optional(),
 });
 export const sourceSchema = sourceObject.superRefine((s, ctx) => {
+  const fail = (message: string) => ctx.addIssue({ code: "custom", message });
+  if (s.kind === "vocal") {
+    if (!s.vocal) fail("Vocal sources need a voice and language");
+    if (s.asset_id) fail("Vocal sources use editable scores, not an audio asset");
+    const notes = [...s.notes].sort((a, b) => a.start - b.start);
+    const ids = new Set(notes.map((n) => n.id));
+    for (let i = 1; i < notes.length; i++)
+      if (notes[i].start < notes[i - 1].start + notes[i - 1].duration - 1e-6)
+        fail(`Vocal notes overlap: ${notes[i - 1].id}, ${notes[i].id}`);
+    if (s.vocal) {
+      const vocal = s.vocal;
+      for (const key of [...Object.keys(vocal.syllables), ...Object.keys(vocal.vibrato)])
+        if (!ids.has(key)) fail(`Vocal assignment refers to missing note: ${key}`);
+      for (let i = 0; i < notes.length; i++) {
+        const assignment = vocal.syllables[notes[i].id];
+        if (assignment?.kind === "continue") {
+          const previous = notes[i - 1];
+          const parent = previous && vocal.syllables[previous.id];
+          if (!previous || !parent || (parent.kind === "syllable" && !parent.lyric.trim()) ||
+              Math.abs(previous.start + previous.duration - notes[i].start) > 1e-6)
+            fail(`Continuation needs an adjacent preceding syllable: ${notes[i].id}`);
+        }
+        if (assignment?.kind === "syllable" && assignment.phonemes) {
+          let duration = notes[i].duration;
+          for (let j = i + 1; j < notes.length && vocal.syllables[notes[j].id]?.kind === "continue"; j++)
+            duration += notes[j].duration;
+          if (assignment.phonemes.reduce((sum, p) => sum + (p.duration_beats ?? 0), 0) > duration + 1e-6)
+            fail(`Phoneme durations exceed syllable group: ${notes[i].id}`);
+        }
+      }
+      for (const [name, points] of [["pitch", vocal.pitch], ["volume", vocal.volume]] as const)
+        for (let i = 0; i < points.length; i++)
+          if (points[i].beat > s.duration || (i > 0 && points[i].beat <= points[i - 1].beat))
+            fail(`Vocal ${name} points must be ordered within source duration`);
+    }
+  } else if (s.vocal) fail("Vocal metadata requires a vocal source");
   if (s.kind === "audio" && (!s.asset_id || s.notes.length))
     ctx.addIssue({
       code: "custom",
@@ -325,6 +386,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     synth: synthSchema.optional(),
     sampler: samplerSchema.nullable().optional(),
     drum_samples: z.array(drumSample).max(32).optional(),
+    vocal: vocalSchema.optional(),
   }),
   z.object({ type: z.literal("part.add"), part: partSchema }),
   z.object({ type: z.literal("part.remove"), part_id: id }),

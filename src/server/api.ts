@@ -23,6 +23,7 @@ import {
 } from "./projects";
 import { boundedBody, fileResponse, safePath, storeAsset } from "./media";
 import { listExamples, loadExample } from "./examples";
+import { vocals, voices } from './vocals/jobs';
 import {
   append,
   eventStream,
@@ -66,6 +67,8 @@ export async function handle(request: Request): Promise<Response> {
     const body = () => request.json() as Promise<unknown>;
     if (path[0] === "health" && path.length === 1 && method === "GET")
       return json({ status: "ok", environment: config.environment });
+    if (path[0] === 'vocal-voices' && path.length === 1 && method === 'GET')
+      return json({ voices: voices() });
     if (path[0] === "capabilities" && path.length === 1 && method === "GET")
       return json({
         producer: producerReady(),
@@ -162,6 +165,17 @@ export async function handle(request: Request): Promise<Response> {
     const projectId = path[1];
     if (!projectId) missing();
     const project = getProject(db, projectId);
+    if (path[2] === 'vocal-renders') {
+      const queue = vocals(db);
+      if (path.length === 3 && method === 'POST') return json(queue.ensure(projectId, await body()), 202);
+      if (path.length === 4 && method === 'GET') return json(queue.status(projectId, path[3]));
+      if (path.length === 5 && path[4] === 'cancel' && method === 'POST') return json(queue.cancel(projectId, path[3]));
+    }
+    if (path[2] === 'vocal-sources' && path.length === 5 && path[4] === 'render' && method === 'GET') {
+      const expected = url.searchParams.get('expected_version');
+      if (expected != null && z.coerce.number().int().parse(expected) !== project.version) conflict(project.version);
+      return json(vocals(db).current(projectId, path[3]));
+    }
     if (path.length === 2 && method === "GET")
       return json(readProject(db, project));
     if (path[2] === "drafts" && path.length === 3 && method === "POST")

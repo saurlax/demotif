@@ -20,6 +20,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS producer_events (run_id TEXT NOT NULL REFERENCES producer_runs(id),seq INTEGER NOT NULL,payload JSON NOT NULL,PRIMARY KEY(run_id,seq));
       CREATE UNIQUE INDEX IF NOT EXISTS uq_active_producer_run ON producer_runs(project_id) WHERE status='running';
       CREATE TABLE IF NOT EXISTS audio_jobs (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),status TEXT NOT NULL,request JSON NOT NULL,upstream_id TEXT,results JSON NOT NULL,error TEXT,created_at DATETIME NOT NULL);
+      CREATE TABLE IF NOT EXISTS vocal_requests (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),source_id TEXT NOT NULL,fingerprint TEXT NOT NULL,score_hash TEXT NOT NULL,job_ids JSON NOT NULL,cancelled BOOLEAN NOT NULL DEFAULT 0,created_at DATETIME NOT NULL);
+      CREATE TABLE IF NOT EXISTS vocal_jobs (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),fingerprint TEXT NOT NULL,snapshot JSON NOT NULL,status TEXT NOT NULL,stage TEXT,result JSON,error TEXT,created_at DATETIME NOT NULL);
+      CREATE TABLE IF NOT EXISTS vocal_renders (project_id TEXT NOT NULL REFERENCES projects(id),source_id TEXT NOT NULL,fingerprint TEXT NOT NULL,request_id TEXT NOT NULL REFERENCES vocal_requests(id),PRIMARY KEY(project_id,source_id));
     `);
     const columns = this.all<{ name: string }>(
       "PRAGMA table_info(projects)",
@@ -140,6 +143,8 @@ export async function runtime(): Promise<Runtime> {
     store.run(
       "UPDATE audio_jobs SET status='interrupted' WHERE status IN ('processing','submitting')",
     );
+    const { vocals } = await import('./vocals/jobs');
+    vocals(store);
     return { store, producerTasks: new Map(), audioTasks: new Map() };
   })());
 }

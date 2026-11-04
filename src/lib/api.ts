@@ -30,7 +30,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(
       'network_error',
-      'Cannot reach the local API. Is the backend running?',
+      'Cannot reach Demotif. Check the connection and try again.',
     )
   }
 
@@ -142,4 +142,21 @@ export async function uploadAudio(
 }
 export function mediaUrl(projectId: string, assetId: string) {
   return `${API_BASE}/projects/${projectId}/assets/${assetId}/content`
+}
+
+export async function listVocalVoices(): Promise<import('@/types/vocal').VocalVoice[]> {
+  return (await request<{ voices: import('@/types/vocal').VocalVoice[] }>('/vocal-voices')).voices
+}
+export async function synthesizeVocal(projectId: string, sourceId: string, version: number) {
+  const result = await request<import('@/types/vocal').VocalRenderStatus>(`/projects/${projectId}/vocal-renders`, {
+    method: 'POST', body: JSON.stringify({ source_id: sourceId, expected_version: version, quality: 'final' }),
+  })
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('demotif:vocal-render', { detail: { projectId, sourceId } }))
+  return result
+}
+export function currentVocal(projectId: string, sourceId: string, expectedVersion?: number) {
+  return request<import('@/types/vocal').VocalRenderStatus>(`/projects/${projectId}/vocal-sources/${sourceId}/render${expectedVersion == null ? '' : `?expected_version=${expectedVersion}`}`)
+}
+export function cancelVocal(projectId: string, requestId: string) {
+  return request<import('@/types/vocal').VocalRenderStatus>(`/projects/${projectId}/vocal-renders/${requestId}/cancel`, { method: 'POST' })
 }

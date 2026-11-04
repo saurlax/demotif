@@ -13,6 +13,7 @@ import {
   type Command,
 } from "@/shared/schema";
 import type { Store } from "./db";
+import { cloneVocalRenders } from "./vocals/clone";
 import { changes, restore, type Delta, type Json } from "./history";
 import { conflict, invalid, locked, missing } from "./errors";
 export interface ProjectRow {
@@ -488,6 +489,7 @@ export function cloneDocument(
   for (const t of document.tracks)
     for (const c of t.clips)
       if (c.asset_id) c.asset_id = mapping.get(c.asset_id)!;
+  cloneVocalRenders(db, from.id, destination);
   return document;
 }
 export function copyProject(db: Store, id: string, draft = false) {
@@ -543,8 +545,10 @@ export function saveDraft(db: Store, id: string, input: unknown) {
       target = getProject(db, draft.draft_base_id!);
       if (target.is_draft || target.version !== draft.draft_base_version)
         conflict(target.version);
-      if (!readProject(db, draft).has_unsaved_changes)
+      if (!readProject(db, draft).has_unsaved_changes) {
+        cloneVocalRenders(db, draft.id, target.id);
         return { project: readProject(db, draft), saved_project_id: target.id };
+      }
       const document = cloneDocument(db, draft, target.id);
       persist(db, target, target.version, { name, document }, "Project saved");
       target = getProject(db, target.id);

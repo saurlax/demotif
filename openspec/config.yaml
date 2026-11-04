@@ -7,7 +7,7 @@ context: |
 
   ## Product
   Demotif is a browser-based AI music workspace. A conversational producer helps the user develop a song while a
-  DAW-style browser studio handles arrangement, recording, and (later) vocal synthesis. The project document is the
+  DAW-style browser studio handles arrangement and playback; optional native PyTorch singing inference runs server-side. The project document is the
   source of truth; agent actions are explicit, validated, reversible commands.
 
   ## Stack
@@ -17,7 +17,7 @@ context: |
   - src/server/: native node:sqlite, typed commands, drafts, media, Vercel AI SDK producer and audio jobs.
   - data/: local SQLite/media/examples. resources/: built-in media/licenses.
   - analysis/: optional Python/librosa subprocess; no Python HTTP service or a13n harness.
-  - Node.js 24+, npm for the app; uv only for optional analysis. UI and API share port 5173.
+  - Node.js 24+, npm for the app; uv for optional analysis and native singing inference. UI and API share port 5173.
   - openspec/: existing specs and change proposals. Migration itself does not introduce a new spec.
 
   ## Boundaries that proposals MUST respect
@@ -30,13 +30,13 @@ context: |
   - Local adapters are seams for hosted migration: filesystem ↔ object storage, SQLite ↔ Postgres, local AI SDK producer ↔ hosted agent.
 
   ## Conventions
-  - Use npm for the Next.js app; uv only for optional analysis.
+  - Use npm for the Next.js app; uv for optional analysis and native singing inference.
   - Keep new dependencies justified by the change; update .env.example when configuration is added.
   - Implemented: browser audio/Workers and WAV export, clip/note/audio editing, mixing, built-in library,
     server-validated commands and undo, isolated drafts with explicit Save/Save as, multiple local examples,
     optional TypeScript AI SDK producer, durable audio-provider jobs, and optional offline transcription.
   - Not yet implemented: microphone recording, live pitch correction, auth, hosted storage/database, adaptive
-    atmosphere effects. Keep synthesis, playback and mix export in the browser; no backend render service is planned.
+    atmosphere effects. Keep real-time instrumental synthesis, playback and mix export in the browser. Optional score-driven singing uses a native PyTorch subprocess under workers/singing; Next.js owns jobs, assets and the project model.
 
 rules:
   proposal:
