@@ -4,7 +4,10 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync, backup } from 'node:sqlite'
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)))
-const legacy=resolve(root,'backend/data'),destination=resolve(root,'data')
+const sourcePath=process.argv[2]
+if(!sourcePath)throw new Error('Usage: npm run migrate:local -- /path/to/legacy-server')
+const sourceRoot=resolve(sourcePath)
+const legacy=resolve(sourceRoot,'data'),destination=resolve(root,'data')
 if(existsSync(resolve(legacy,'demotif.db'))){
   mkdirSync(destination,{recursive:true})
   const target=resolve(destination,'demotif.db')
@@ -15,14 +18,13 @@ if(existsSync(resolve(legacy,'demotif.db'))){
   }else console.log('Destination database exists; left unchanged.')
   for(const directory of ['media','examples'])if(existsSync(resolve(legacy,directory))){cpSync(resolve(legacy,directory),resolve(destination,directory),{recursive:true,force:false,errorOnExist:false})}
 }
-const env=resolve(root,'frontend/.env.local'),oldEnv=resolve(root,'backend/.env')
+const env=resolve(root,'.env.local'),oldEnv=resolve(sourceRoot,'.env')
 if(!existsSync(env)&&existsSync(oldEnv)){
   copyFileSync(oldEnv,env)
   // Relative legacy data paths now resolve against the workspace root.
   // Keep a user's absolute path selections intact.
   let content=readFileSync(env,'utf8')
-  const legacyPython=resolve(root,'backend/.venv/bin/python')
-  if(existsSync(legacyPython)&&!/^DEMOTIF_ANALYSIS_PYTHON=/m.test(content))content+=`\nDEMOTIF_ANALYSIS_PYTHON=${legacyPython}\n`
+  content=content.replace(/^DEMOTIF_ANALYSIS_PYTHON=.*$/m,'DEMOTIF_ANALYSIS_PYTHON=./analysis/.venv/bin/python')
   writeFileSync(env,content,{mode:0o600})
-  console.log('Copied server environment to ignored frontend/.env.local; values not printed.')
+  console.log('Copied server environment to ignored .env.local; values not printed.')
 }

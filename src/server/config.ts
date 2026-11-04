@@ -1,14 +1,12 @@
-import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 
 // Next loads server-only .env.local; relative storage paths are workspace-relative.
-const root = existsSync(resolve(process.cwd(), "frontend"))
-  ? process.cwd()
-  : resolve(process.cwd(), "..");
+const root = process.cwd();
 export const repositoryRoot = root;
 const env = (key: string, fallback = "") =>
   process.env[`DEMOTIF_${key}`] ?? fallback;
-const localPath = (path: string) => resolve(root, path);
+// User data lives on the runtime filesystem, outside the bundled server code.
+const localPath = (path: string) => resolve(/* turbopackIgnore: true */ root, path);
 const databaseURL = env("DATABASE_URL");
 if (databaseURL && !databaseURL.startsWith("sqlite"))
   throw new Error("Only local SQLite is configured");

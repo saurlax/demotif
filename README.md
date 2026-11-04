@@ -13,13 +13,13 @@ Microphone recording, live pitch correction, authentication, and hosted deployme
 Requires Node.js 24+ (including native `node:sqlite`). The application is Next.js 16 App Router with React, TypeScript, Tailwind v4 and shadcn/Base UI. Next.js serves both the workspace and `/api`; no separate API server is required.
 
 ```bash
-npm ci --prefix frontend
+npm ci
 npm run dev
 ```
 
-Open [localhost:5173](http://localhost:5173). Run `npm run build` and `npm start` for a production build. `npm test` runs browser-audio and server tests; `npm run typecheck` checks both sides. Run `npm --prefix frontend run lint` for lint checks.
+Open [localhost:5173](http://localhost:5173). Run `npm run build` and `npm start` for a production build. `npm test` runs browser-audio and server tests; `npm run typecheck` checks both sides. Run `npm run lint` for lint checks.
 
-Copy `frontend/.env.example` to `frontend/.env.local` for optional services. Producer configuration uses `DEMOTIF_PRODUCER_MODEL`, `DEMOTIF_PRODUCER_API_KEY`, optionally `DEMOTIF_PRODUCER_BASE_URL`, and `DEMOTIF_PRODUCER_API=chat` or `responses`. Vercel AI SDK and its OpenAI-compatible provider run only on the server; tools stage typed edits for review. Credentials must never use `NEXT_PUBLIC_` names.
+Copy `.env.example` to `.env.local` for optional services. Producer configuration uses `DEMOTIF_PRODUCER_MODEL`, `DEMOTIF_PRODUCER_API_KEY`, optionally `DEMOTIF_PRODUCER_BASE_URL`, and `DEMOTIF_PRODUCER_API=chat` or `responses`. Vercel AI SDK and its OpenAI-compatible provider run only on the server; tools stage typed edits for review. Credentials must never use `NEXT_PUBLIC_` names.
 
 SQLite, media and optional example packs live under `data/`; back up the database and media together. Relative storage settings resolve against the repository root. Example manifests use `data/examples/<id>/manifest.json`; Pocket groove is built in. Additional songs/media are local data, not distributed with the source.
 
@@ -28,10 +28,10 @@ SQLite, media and optional example packs live under `data/`; back up the databas
 Stop the old API before switching writers. Run the one-time copy command before starting Next.js:
 
 ```bash
-npm run migrate:local
+npm run migrate:local -- /path/to/legacy-server
 ```
 
-It copies the old database with SQLite's backup API, copies media/examples without replacing existing destination files, and copies the legacy server environment to ignored `frontend/.env.local` if that file does not exist. Original files remain intact. The destination database is never overwritten. The new server also creates `data/demotif.db.pre-nextjs.bak` before its first database initialization. Do not run the old API against the active database concurrently. Custom absolute storage paths should be checked separately before cutover.
+It copies the old database with SQLite's backup API, copies media/examples without replacing existing destination files, and copies the legacy server environment to ignored `.env.local` if that file does not exist. Original files remain intact. The destination database is never overwritten. The new server also creates `data/demotif.db.pre-nextjs.bak` before its first database initialization. Do not run the old API against the active database concurrently. Custom absolute storage paths should be checked separately before cutover.
 
 ## Optional transcription
 
@@ -46,4 +46,4 @@ Install ffmpeg, and optionally set `DEMOTIF_ANALYSIS_PYTHON` to the analysis env
 
 Project JSON does not embed media: references must exist in the local workspace. Audio imports accept up to eight files per batch, each up to 60 MB and five minutes. Recordings retain their original speed when tempo changes.
 
-Third-party attribution is retained in `resources/sounds/catalog.json`, `resources/licenses/`, and `frontend/branding/OFL.txt`. See [architecture](docs/architecture.md) for runtime boundaries, persistence, and command semantics.
+Third-party attribution is retained in `resources/sounds/catalog.json`, `resources/licenses/`, and `branding/OFL.txt`. See [architecture](docs/architecture.md) for runtime boundaries, persistence, and command semantics.

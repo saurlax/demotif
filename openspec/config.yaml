@@ -11,10 +11,10 @@ context: |
   source of truth; agent actions are explicit, validated, reversible commands.
 
   ## Stack
-  - frontend/: Next.js 16 App Router (UI + Node API), React, strict TypeScript, Tailwind v4, shadcn/Base UI,
+  - src/app/: Next.js 16 App Router (UI + Node API), React, strict TypeScript, Tailwind v4, shadcn/Base UI,
     TanStack Query, Zustand. Path alias @/. Browser DSP and Web Audio remain client-only.
-  - frontend/src/shared/schema.ts: Zod runtime contracts, shared with inferred UI types.
-  - frontend/src/server/: native node:sqlite, typed commands, drafts, media, Vercel AI SDK producer and audio jobs.
+  - src/shared/schema.ts: Zod runtime contracts, shared with inferred UI types.
+  - src/server/: native node:sqlite, typed commands, drafts, media, Vercel AI SDK producer and audio jobs.
   - data/: local SQLite/media/examples. resources/: built-in media/licenses.
   - analysis/: optional Python/librosa subprocess; no Python HTTP service or a13n harness.
   - Node.js 24+, npm for the app; uv only for optional analysis. UI and API share port 5173.

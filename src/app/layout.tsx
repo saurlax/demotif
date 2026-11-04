@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import type { ReactNode } from "react";
-import "@/index.css";
+import "./globals.css";
 export const metadata: Metadata = {
   title: "Demotif",
   description: "Demotif music workspace",
