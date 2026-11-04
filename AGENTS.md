@@ -5,22 +5,28 @@ browser owns real-time audio.
 
 ## Layout
 
-- `frontend/` — Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui (`base-nova`, Base UI primitives).
-- `backend/` — Python 3.13 + FastAPI + SQLAlchemy 2 (async) + SQLite. Local media in `backend/data/` (gitignored).
-- `openspec/` — spec-driven change proposals and specs. Agent integrations live in `.agents/skills/`.
-- `docs/architecture.md` — runtime boundaries, data model, command protocol, migration seams.
+- `frontend/` — Next.js 16 App Router + React + TypeScript + Tailwind v4 + shadcn/Base UI; serves UI and Node API.
+- `frontend/src/shared/schema.ts` — shared runtime Zod schemas; UI types derive from them.
+- `frontend/src/server/` — SQLite, typed commands/history, drafts, media, AI SDK producer and audio jobs.
+- `frontend/src/audio/` — browser DSP, Web Audio graph and Workers.
+- `resources/` — built-in sound catalog/media and licenses.
+- `analysis/` — optional Python 3.13/librosa transcription subprocess; no Python HTTP server.
+- `data/` — ignored local database, media and example packs.
+- `openspec/` — existing specs and future proposals. `docs/architecture.md` describes current runtime boundaries.
 
 ## Commands
 
 ```bash
-# backend (port 8200; 8000–8197 are inside a Windows excluded port range on this machine)
-cd backend && uv run uvicorn app.main:app --port 8200
-
-# frontend (port 5173, proxies /api to 127.0.0.1:8200)
-cd frontend && npm run dev
-
-cd frontend && npm run build      # tsc -b && vite build
-cd backend && uv run pytest       # command protocol tests
+npm ci --prefix frontend
+npm run dev                        # Next.js UI + API, port 5173
+npm run build
+npm start
+npm test                           # browser audio + Node service tests
+npm run typecheck
+npm --prefix frontend run lint
+uv sync --project analysis         # optional offline transcription only
+uv run --project analysis pytest
+npm run migrate:local              # copy legacy state; retain original files
 ```
 
 ## Invariants
@@ -32,7 +38,7 @@ cd backend && uv run pytest       # command protocol tests
   latency must never gate recording start.
 - Generation providers are separate from editing and playback. Never couple the DAW audio graph to a provider SDK.
 - Local adapters stand in for future hosted services: local filesystem ↔ object storage, SQLite ↔ Postgres,
-  configured a13n producer ↔ hosted agent. The optional producer extra pins `a13n-harness==0.21.0`.
+  local AI SDK producer ↔ hosted agent. The app has no Python API or agent harness dependency.
 
 ## OpenSpec workflow
 
@@ -47,10 +53,15 @@ openspec archive <change>
 Keep proposals small, state which boundary they touch (browser audio / server model / provider), and name the
 invariants above when they apply.
 
+## Implementation scope
+
+- Keep the initial migration direct. Do not add bespoke origin/host allowlists or arbitrary new limits; preserve existing command validation, version checks, locks, and save semantics.
+
 ## Style
 
 - TypeScript: strict, `erasableSyntaxOnly` (no parameter properties / enums), path alias `@/`.
-- Python: type hints on public functions, Pydantic for boundaries, services own transactions.
+- Node services own SQLite transactions. Runtime-validate all command/provider boundaries with shared Zod schemas.
+- Python is limited to the optional analysis subprocess; retain bounded input/output and public type hints.
 - Do not add dependencies that are not used by the current change.
 
 ## Interface rules
@@ -62,12 +73,16 @@ invariants above when they apply.
   share one geometry; regenerate assets with `uv run scripts/generate_brand.py`. Preserve the aspect ratio and
   monochrome treatment; navigation displays it at 18px high. Font licensing is retained in `frontend/branding/OFL.txt`.
 - Customize the shared shadcn/Base UI tokens and components directly, including the home page, global library,
-  studio, buttons, inputs, cards, and dialogs. Use Geist typography, flat graphite surfaces, acid-yellow primary actions,
+  studio, buttons, inputs, cards, and dialogs. Use Geist typography, neutral charcoal/silver surfaces, amber primary actions,
   mint playback/status feedback, and readable track/source colors. Take layout cues from DJ decks and samplers:
-  clear control groups, precise scales, compact pads, and thin separators. Avoid beveled controls, gradient
-  toolbars, inset shadows, idle glows, and hover lifts; color and outlines communicate state. Do not add
+  clear control groups, precise scales, compact pads, and thin separators. Use compact seven-segment time/tempo readouts and LED state indicators, with restrained amber/mint glow
+  on real readouts and active states. Keep ordinary labels in Geist. Avoid beveled controls, gradient
+  toolbars, inset shadows, ambient glows, and hover lifts; color and outlines communicate state. Do not add
   decorative turntables or fake meters. Home and library layouts stay restrained
   within this same visual system; restrained does not mean leaving their old styling unchanged.
+  Keep all colors in the shared light/dark tokens in `src/index.css`: amber for actions/selection, mint for
+  playback and ready states, muted musical hues for track/note data. Reuse track tokens in clip/library/drag previews;
+  preserve stored custom colors. Home project icons use the brand color rather than arbitrary alternating accents.
   Keep musical editing geometry stable during interaction animations; honor reduced motion.
   Side panels enter and exit horizontally from their own edge (Library left, Producer right). Animate
   both directions and retain closing content until exit finishes; never use bottom-up motion for sidebars.
@@ -112,7 +127,10 @@ invariants above when they apply.
   edits/uploads/saves are pending, or while editable fields have uncommitted values. Saving clears dirty state
   only after server acknowledgement; failed/conflicting saves keep the draft and prompt protection intact.
   Do not warn on every visit. Track queued and concurrent work until all have completed.
-  Do not replace it with a second custom prompt.
+  Internal document navigation uses one shared unsaved-changes dialog before leaving a dirty draft, since embedded
+  browsers may silently cancel beforeunload and native confirm without showing their dialogs. Cancel retains the workspace; confirmation removes
+  the beforeunload handler for that departure to prevent a duplicate prompt. Refresh/tab closure retain beforeunload.
+  Do not stack another confirmation on this dialog.
 - Use **Clip / Clips** consistently for musical fragments in the interface, including creation, track counts,
   editors, and saved library items. Keep existing internal protocol identifiers compatible with stored projects.
 - Audio generation, vocal separation, and audio-to-notes conversion are Producer actions. Do not add a standalone

@@ -2,53 +2,60 @@
 
 <p align="center">An AI music creation workspace.</p>
 
-Demotif combines a browser music studio with a conversational producer. Arrange reusable Clips, edit notes and drum patterns, import audio, mix tracks, and export WAV. The producer proposes reversible edits for review before they enter the project.
+Demotif combines a browser music studio with a conversational producer. Arrange reusable clips, edit notes and drum patterns, import audio, mix tracks, and export WAV. The producer proposes reversible edits for review before they enter the project.
 
 ## Studio
 
 - Multitrack playback, drag seeking, section markers, zoom, panning, and centered playhead following.
-- Shared Clips with independent placements: move, trim, split, duplicate, save to the library, or return an instance to it.
-- Piano roll, drum sequencer, velocity, transpose/quantize, keyboard audition, and clip loops.
-- 60 built-in sounds: synthesis voices, drum kits, samples, effects, and CC0 sampled instruments. Configure envelopes, oscillators, sampler roots/loops, and drum sample mappings.
-- Track/master/bus mixing, effects, routing, automation, and stereo 44.1 kHz/16-bit WAV export through the same audio graph as playback.
-- Isolated editing drafts, explicit Save/Save as with cross-tab version checks, JSON import, multiple local examples, track locks, and persistent undo. Examples require Save as; unsaved edits use the native browser departure warning.
-- Optional a13n producer with persisted conversations, ordered streaming progress, explicit proposal application, cancellation, and reconnect support.
-- Optional music/speech/effect generation and generated-vocal separation through an audio gateway. Jobs retain upstream identities and never automatically repeat an uncertain paid submission.
-- Optional offline monophonic/percussion transcription for sources up to 30 seconds. Results retain the original audio and are added muted for review.
+- Shared sources and reusable clips with independent placements: move, trim, split, duplicate, or return a clip to the library.
+- Piano roll, drum sequencer, velocity, transpose/quantize, press-and-glide audition, and clip loops.
+- 60 built-in sounds: synthesis voices, drum kits, samples, effects, and CC0 sampled instruments.
+- Track/master/bus mixing, effects, routing, automation, and stereo 44.1 kHz/16-bit WAV export in the browser.
+- Isolated editing drafts, explicit Save/Save as with cross-tab version checks, JSON import, multiple local examples, locks, and persistent undo. Examples require Save as; unsaved edits use the browser's native departure warning.
+- Optional TypeScript producer with persisted conversation events, streaming progress, explicit proposal application, cancellation, and reconnect support.
+- Optional music/speech/effect generation and generated-vocal separation through an audio gateway. Unknown submissions are never automatically repeated.
+- Optional offline monophonic/percussion transcription for sources up to 30 seconds, in a separate analysis subprocess.
 
-Microphone recording, live pitch correction, account isolation, and hosted deployment remain future work. Audio generation and the real producer require server configuration; unavailable capabilities are shown explicitly.
+Microphone recording, live pitch correction, authentication, and hosted deployment remain future work.
 
 ## Development
 
-Requires Node.js 20.19+ and Python 3.13 with [uv](https://docs.astral.sh/uv/).
+Requires Node.js 24+ (including native `node:sqlite`). The application is Next.js 16 App Router with React, TypeScript, Tailwind v4 and shadcn/Base UI. Next.js serves both the workspace and `/api`; no separate API server is required.
 
 ```bash
-# terminal 1
-cd backend
-uv sync
-uv run uvicorn app.main:app --port 8200
-
-# terminal 2
-cd frontend
-npm install
+npm ci --prefix frontend
 npm run dev
 ```
 
-Open [localhost:5173](http://localhost:5173). Vite proxies `/api` to port 8200. SQLite and media stay under `backend/data/`; back up both together. No browser database or external service is required for playback, editing, and export.
+Open [localhost:5173](http://localhost:5173). Run `npm run build` and `npm start` for a production build. `npm test` runs browser-audio and server tests; `npm run typecheck` checks both sides. Run `npm --prefix frontend run lint` for lint checks.
 
-For the real producer, install `uv sync --extra producer` and configure `DEMOTIF_PRODUCER_MODEL`, `DEMOTIF_PRODUCER_API_KEY`, and optionally `DEMOTIF_PRODUCER_BASE_URL` in `backend/.env`. The verified SDK is `a13n-harness==0.21.0`, supporting OpenAI Responses and Chat Completions compatible endpoints (`DEMOTIF_PRODUCER_API=responses` or `chat`). Only project/audio tools are exposed.
+Copy `frontend/.env.example` to `frontend/.env.local` for optional services. Producer configuration uses `DEMOTIF_PRODUCER_MODEL`, `DEMOTIF_PRODUCER_API_KEY`, optionally `DEMOTIF_PRODUCER_BASE_URL`, and `DEMOTIF_PRODUCER_API=chat` or `responses`. Vercel AI SDK and its OpenAI-compatible provider run only on the server; tools stage typed edits for review. Credentials must never use `NEXT_PUBLIC_` names.
 
-For audio generation, configure `DEMOTIF_AUDIO_BASE_URL`, `DEMOTIF_AUDIO_API_KEY`, and `DEMOTIF_AUDIO_BIZ_ID` for the NexusHub asynchronous audio API, and install ffmpeg/ffprobe. For local analysis, install `uv sync --extra analysis` and ffmpeg. Combine extras with `uv sync --all-extras`. Use the same extras when running commands, for example `uv run --all-extras uvicorn app.main:app --port 8200`. See `backend/.env.example` for placeholders; credentials remain server-side.
+For audio generation, configure `DEMOTIF_AUDIO_BASE_URL`, `DEMOTIF_AUDIO_API_KEY`, and `DEMOTIF_AUDIO_BIZ_ID` for the NexusHub asynchronous audio API, and install ffmpeg/ffprobe. Local playback, editing, and WAV export work without these services.
+
+SQLite, media and optional example packs live under `data/`; back up the database and media together. Relative storage settings resolve against the repository root. Example manifests use `data/examples/<id>/manifest.json`; Pocket groove is built in. Additional songs/media are local data, not distributed with the source.
+
+## Existing local installations
+
+Stop the old API before switching writers. Run the one-time copy command before starting Next.js:
 
 ```bash
-cd backend && uv run --all-extras pytest
-cd backend && uv run ruff check app tests
-cd frontend && npm test
-cd frontend && npm run build
+npm run migrate:local
 ```
 
-Project JSON imports create a new project. Referenced audio must already be available in the same local workspace; JSON does not embed media. Audio imports accept up to eight files per batch, each up to 60 MB and five minutes. Source recordings remain at their original speed when project tempo changes.
+It copies the old database with SQLite's backup API, copies media/examples without replacing existing destination files, and copies the legacy server environment to ignored `frontend/.env.local` if that file does not exist. Original files remain intact. The destination database is never overwritten. The new server also creates `data/demotif.db.pre-nextjs.bak` before its first database initialization. Do not run the old API against the active database concurrently. Custom absolute storage paths should be checked separately before cutover.
 
-Third-party sample attribution is retained in `backend/resources/sounds/catalog.json` with license texts in `backend/resources/licenses/`. See [architecture](docs/architecture.md) for state authority, command history, runtime boundaries, and adapter seams.
+## Optional transcription
 
-Example packs are read from `backend/data/examples/<id>/manifest.json` (or `DEMOTIF_EXAMPLES_ROOT`). Pocket groove is built in; additional packs and their media are local data and are not distributed with the source. Opening an example creates an unlisted draft, not a saved project.
+Only this offline tool needs Python 3.13; the web application and producer do not.
+
+```bash
+uv sync --project analysis
+uv run --project analysis pytest
+```
+
+Install ffmpeg, and optionally set `DEMOTIF_ANALYSIS_PYTHON` to the analysis environment's Python executable. The default is `analysis/.venv/bin/python`. Analysis is bounded to 30 seconds and is independent of playback timing.
+
+Project JSON does not embed media: references must exist in the local workspace. Audio imports accept up to eight files per batch, each up to 60 MB and five minutes. Recordings retain their original speed when tempo changes.
+
+Third-party attribution is retained in `resources/sounds/catalog.json`, `resources/licenses/`, and `frontend/branding/OFL.txt`. See [architecture](docs/architecture.md) for runtime boundaries, persistence, and command semantics.
