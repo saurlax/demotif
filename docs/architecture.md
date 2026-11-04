@@ -1,223 +1,119 @@
-# Demotif architecture (local-first)
+# Demotif architecture
 
-Status: local music studio with browser synthesis/sampling, arrangement and note editing, mixing, WAV export,
-server-owned commands/history, and optional configured producer/audio services. Microphone recording and live pitch
-correction are not implemented.
+Demotif is a local Next.js full-stack music workspace. The browser owns audio; the Node runtime owns accepted
+project state, saves, history, media access, and optional producer/provider execution. No Python HTTP service runs.
 
 ## Runtime boundaries
 
 ```text
-┌──────────────────────────── browser ────────────────────────────┐
-│ Studio UI (React)        Audio engine (Web Audio + Workers)  │
-│  arrangement, mixer       transport clock, synthesis, sampling  │
-│  producer chat            Clip audition, effects, WAV export   │
-└───────────────┬─────────────────────────────────────────────────┘
-                │ /api (typed commands, JSON)
-┌───────────────▼─────────────────────────────────────────────────┐
-│ Python API (FastAPI)                                            │
-│  project document · version CAS · operation log · assets         │
-│  a13n producer, staged proposals, durable SSE events               │
-│  optional audio adapters (never in the audio path)           │
-└───────────────┬─────────────────────────────────────────────────┘
-                │
-        SQLite + local media  →  Postgres + object storage (hosted)
+Browser: React studio + Web Audio + two lazy Workers
+   │  typed JSON commands / uploads / resumable SSE
+   ▼
+Next.js App Router (Node runtime, persistent local process)
+   ├─ shared Zod contracts and validated project services
+   ├─ SQLite transactions, append-only operations, editing drafts
+   ├─ local assets and built-in sound/example catalogs
+   ├─ Vercel AI SDK producer and staged tools
+   └─ durable audio-provider jobs / optional analysis subprocess
+        │
+        ▼
+SQLite + filesystem in data/; optional configured providers
 ```
 
-Two rules drive the design:
+Realtime playback, seeking, audition, clip loops, effects, and OfflineAudioContext WAV export remain browser-local.
+No remote stream or render queue sits in the transport path. The same DSP/graph serves playback and export.
+Generation and analysis are distinct provider operations whose results require explicit accepted commands.
 
-1. **The project document is the source of truth.** The UI renders it; the producer only proposes commands against it.
-2. **Real-time audio never waits on the network.** Recording start, metronome, and monitoring are browser-local. The
-   agent participates before/after a take, not in the sample-accurate path.
+## Layout and commands
 
-## Repository layout
+- `frontend/src/app/`: Next.js routes, root layout, client workspace boundary, and Node API route handlers.
+- `frontend/src/shared/schema.ts`: runtime Zod document/command validation; frontend types derive from these schemas.
+- `frontend/src/server/`: project services, SQLite adapter, reversible deltas, media, examples, producer, audio jobs.
+- `frontend/src/features/`, `components/`: studio, project management, libraries and shared shadcn/Base UI.
+- `frontend/src/audio/`: existing browser DSP, Worker scheduling, loading, graph, effects, export and adapter.
+- `resources/`: built-in sound catalog, WAV files, provenance and licenses.
+- `analysis/`: optional isolated Python/librosa transcription command and tests; no web framework or agent harness.
+- `data/`: ignored SQLite, media and local examples. Legacy `backend/data/` remains only as local rollback material.
+- `scripts/migrate-local-data.mjs`: non-destructive copy of legacy local state and ignored configuration.
 
-```text
-demotif/
-├─ frontend/
-│  ├─ src/
-│  │  ├─ app/providers.tsx          # Query client, tooltip provider
-│  │  ├─ components/ui/             # shadcn/ui (base-nova, Base UI)
-│  │  ├─ features/
-│  │  │  ├─ projects/               # project list + create
-│  │  │  └─ studio/                 # arrangement, editors, mixer, project menu, transport, producer
-│  │  ├─ audio/                      # DSP, Web Audio graph, render Workers, adapter
-│  │  ├─ lib/api.ts                 # typed HTTP client
-│  │  ├─ stores/studio.ts           # playback/UI state (Zustand)
-│  │  └─ types/project.ts           # document + command contracts
-│  └─ vite.config.ts                # @ alias, /api proxy → 127.0.0.1:8200
-├─ backend/
-│  ├─ app/
-│  │  ├─ main.py                    # app factory, lifespan, error mapping
-│  │  ├─ api/routes/                # projects, commands, messages, assets, health
-│  │  ├─ core/                      # settings, domain errors
-│  │  ├─ db/                        # async engine/session, declarative base
-│  │  ├─ models/project.py          # Project, Operation, Revision, Asset, ProducerRun/Event, AudioJob
-│  │  ├─ schemas/                   # document, command, project, asset, agent DTOs
-│  │  ├─ services/                  # project + command (transactions)
-│  │  └─ adapters/
-│  │     ├─ agent/                  # Producer protocol + a13n adapter
-│  │     ├─ audio/                  # gateway and bounded offline analysis
-│  │     └─ storage/                # LocalBlobStore
-│  ├─ tests/                        # command protocol tests
-│  └─ pyproject.toml                # uv-managed
-├─ openspec/                        # specs + change proposals
-├─ .agents/skills/                  # OpenSpec skills (vendor-neutral)
-├─ docs/architecture.md
-├─ AGENTS.md
-└─ README.md
-```
+Node.js 24+ supplies `node:sqlite`; no native npm database addon is needed. Install with `npm ci --prefix frontend`.
+`npm run dev` serves UI and API on 5173. `npm run build`, `npm start`, `npm test`, and `npm run typecheck` delegate
+to the Next.js package. Vitest tests the browser engine and Node services. Optional analysis uses `uv sync --project analysis`.
 
-Audio implementation lives in `frontend/src/audio/`; studio views remain in `frontend/src/features/studio/` and use
-Demotif's existing theme, Base UI components, and application shell.
+The application is intended for a persistent local Node process. It requires a writable local filesystem and is not
+ready for ephemeral/serverless deployment or multiple independent API replicas. There is no authentication boundary yet.
 
-## Data model
+## Project authority and history
 
-- `Project` — name, `version`, `document` (JSON), timestamps. The document embeds tracks and clips:
-  `{ tempo, time_signature, key, tracks: [{ id, name, kind, locked, muted, solo, clips: [...] }] }`.
-- `Operation` — append-only forward/inverse field or entity deltas, metadata, and optional `undo_of` link.
-- `Revision` — legacy read-only snapshots retained for compatibility; new edits never write these.
-- `Asset` — uploaded audio/video metadata; content lives in the storage adapter (`backend/data/media/<project>/...`).
+The persisted document contains tempo, meter, key, sections, Sources, reusable Parts (a compatible protocol identifier),
+Tracks, placed Clips, and mixer/master/bus settings. UI calls them Clips. Notes/arrangement/automation use quarter-note
+beats; recorded source windows use seconds. Tempo supports 20–300 BPM to one decimal place.
 
-Why JSON for the arrangement: the document is edited atomically as one unit, matches the command protocol, and maps
-directly to a `jsonb` column when moving to Postgres. Normalize into tables only when a query needs it (e.g. asset
-search, collaboration).
+Every command is runtime-validated. Expected versions are checked under an immediate SQLite transaction; updates use
+compare-and-swap and write a new version plus operation deltas atomically. Shared-source edits check all referencing
+locked tracks/clips. Mixer routes reject cycles. Media IDs must belong to the current project. Batch request receipts
+recover identical requests and reject reused identities with different content. Legacy Python request fingerprints
+are recognized so migration does not replay accepted edits or create duplicate paid audio submissions.
 
-## Producer Command Protocol
+Operations store forward/inverse field changes and stable-ID entity inserts/removes/moves. Value arrays use replacement
+deltas. Undo applies the latest uncompensated inverse and appends a new compensation version; it never deletes history.
+Legacy Revision rows are read-only. Databases still using snapshot history are validated and converted transactionally;
+incomplete or inconsistent history aborts initialization. Lock payload size is independent of unrelated project content,
+but validation/diffing/document persistence still process project state.
 
-Request to `POST /api/projects/{id}/commands`:
+Tables: `projects`, `operations`, legacy `revisions`, `assets`, `command_receipts`, `producer_runs`, `producer_events`,
+and `audio_jobs`. The new adapter preserves the existing table/JSON layout and IDs. Database access stays behind Store;
+a future hosted SQL implementation and object-storage adapter remain separate work.
 
-```json
-{
-  "command_id": "generated-if-omitted",
-  "expected_version": 4,
-  "command": { "type": "clip.add", "track_id": "…", "name": "Verse", "start_beat": 8, "length_beats": 16 }
-}
-```
+## Drafts and explicit saves
 
-Invariants:
+Opening a saved project creates an isolated server draft with a base ID and version. Examples open as clean unlisted
+drafts without a saved base. Drafts use the same validated commands, locks, asset ownership and undo protocol, and never
+appear in project listings/recents. Accepted name/document is compared with an opening/save checkpoint; undo can return
+the draft to a clean state.
 
-- `expected_version` must equal the stored version; otherwise `409 version_conflict` with `current_version`.
-- Commands affecting locked tracks/clips fail with `409 locked_section`. Toggling the lock itself is allowed.
-- Every accepted command atomically updates the current document and appends an operation; responses keep revision metadata for API compatibility.
-- Undo (`POST /projects/{id}/undo`) applies the latest active operation inverse and appends a compensation linked by `undo_of`; consumed operations and compensations are skipped by later undo. History is never rewritten.
+Save publishes a draft to its base with a version check, rejecting concurrent-tab overwrites. Save as creates a new saved
+project and changes the draft's base. Examples require Save as until copied. Media metadata is cloned for ownership while
+immutable blob keys are retained. Saving advances a baseline operation and checkpoint without rewriting prior history.
+Conflicts and failures retain the editable draft and departure protection.
 
-Implemented commands: `project.rename`, `project.set_tempo`, `track.add`, `track.remove`, `track.set_lock`,
-`clip.add`, `clip.move`, `clip.remove`, `clip.update`, `clip.split`, `track.update`, `source.add`, `source.update`,
-`part.add`, `part.remove`, `mixer.set`, `project.set_time_signature`, and `project.set_sections`.
+Navigation uses Next route entry points and document navigation. This intentionally preserves native `beforeunload`
+confirmation on home/project links and browser Back without a custom duplicate prompt. It covers accepted unsaved edits,
+pending operations/uploads/saves, and uncommitted inputs. Clean saved-project-to-draft redirects replace the document URL.
+The studio remains a browser-only client boundary so AudioContext, Workers, matchMedia and local theme state are never
+executed during server prerendering. Existing studio layout, motion and editing geometry are retained.
 
-`POST /projects/{id}/commands/batch` accepts `{request_id, expected_version, commands}`. It commits one validated
-version and one reversible operation. Request receipts deduplicate retries. Shared source edits check every referencing
-track/clip lock; duplicate the source explicitly to edit an unlocked instance independently. Bus routes reject cycles.
-Entity arrays use stable IDs; ordinary value arrays (including automation points) use reversible replacement values.
+## Producer and asynchronous jobs
 
-The producer (`POST /projects/{id}/messages`) returns `{ reply, commands }` and does **not** auto-apply. The UI shows
-the proposed edits and applies them through the command endpoint, preserving explicit user approval.
+The TypeScript producer uses Vercel AI SDK with the configured Chat Completions or Responses-compatible model route.
+It exposes only project inspection, installed sounds, typed staged edits and available audio operations. There are no
+shell/filesystem tools. Edits are validated on a private document; accepted state changes only on explicit proposal Apply.
+Limits bound steps, proposal size, elapsed time and audio calls. Visible text/tool events persist with increasing SSE
+sequence numbers. Historical replies remain readable; old Python harness state is never mistaken for SDK message history.
 
-## Adapter seams (hosted migration)
+Producer runs live independently of an individual SSE connection. Refresh/reconnect resumes durable display events;
+cancellation aborts model work. Startup marks unfinished local runs interrupted. Execution is in the persistent Node
+process with bounded slots, matching the current local deployment; an external durable worker/lease service would be
+required before horizontal scaling or serverless deployment.
 
-Keep browser audio code independent of these adapters. The backend never touches audio buffers in the real-time path.
+Audio jobs preserve intent and upstream IDs before polling/materializing results. Identical request/take fingerprints
+recover existing jobs. An unknown paid submission is never automatically resubmitted. A known upstream job can be
+explicitly resumed after restart; cancelled/late work cannot publish completed results. HTTPS downloads require public
+addresses, pin DNS during connection, revalidate redirects, and bound bytes/time. ffmpeg uses local-file/pipe protocols.
+Optional transcription invokes the bounded `analysis/transcribe.py` subprocess and keeps original recordings intact.
 
-## Local ports and commands
+## Storage and migration
 
-| Service | Port | Note |
-| --- | --- | --- |
-| Vite | 5173 | proxies `/api` to the backend |
-| FastAPI | 8200 | 8000–8197 sit in a Windows excluded port range on this machine |
+Server-only `.env.local` configures providers and optional storage paths. Relative paths resolve from repository root;
+defaults are `data/demotif.db`, `data/media/`, `data/examples/`. No credential uses a NEXT_PUBLIC prefix.
 
-```bash
-cd backend && uv run uvicorn app.main:app --port 8200
-cd frontend && npm run dev
-cd backend && uv run pytest
-cd frontend && npm run build
-```
+Stop the old API, then run `npm run migrate:local`. SQLite's backup API copies the database consistently; media/examples
+are copied without overwriting existing destination files. Original local files and configuration are retained. The Node
+adapter also creates a pre-Next.js SQLite backup before initialization. For rollback, stop Next.js and use the retained
+legacy code/state consistently; do not combine two writers. Do not overwrite an existing destination database automatically.
+The migration adds no backend audio renderer, genre shader, or automatic project save.
 
-## Musical state and audio runtime
+## Deferred work
 
-Stored media Assets remain independent from reusable Sources. A Source holds notes/instrument settings or an audio
-Asset reference. Saved Parts store named source windows. Clips reference Sources and own their timeline positions,
-source windows, gain, and fades. Musical note/arrangement/automation time uses quarter-note beats; recorded source
-windows use seconds. Tempo is 20–300 BPM with one decimal place. The render adapter alone converts beats to seconds.
-A tempo edit updates audio clip display lengths while preserving recorded source seconds and musical start beats.
-
-AudioContext owns playback time. Two lazy Workers synthesize longer sources and encode WAV; decoded immutable media
-is shared and project release invalidates stale work. Playback, Clip loops, and OfflineAudioContext export share voices,
-envelopes, routing and effects. Global and clip playback are mutually exclusive. Waveforms derive from decoded audio.
-UI gesture drafts are temporary; React Query contains only accepted project documents.
-
-## Producer and audio jobs
-
-`/projects/{id}/producer` restores run/event history. Runs have independent background lifetime, base versions,
-checkpoints, typed proposed commands, and monotonic SSE cursors. Tools stage validated edits on a private copy.
-Applying a proposal goes through the atomic command service; stale proposals cannot overwrite manual work. Closing
-SSE does not cancel execution. Explicit cancellation stops future model work; startup marks abandoned runs interrupted.
-The real adapter exposes only musical project and configured audio tools, never shell or host filesystem tools.
-
-`/projects/{id}/audio-jobs` stores generation/analysis requests and results. Equivalent request/take combinations reuse
-one durable identity. Submission intent is saved before network calls; uncertain submissions are never automatically
-repeated. Known upstream jobs can be explicitly resumed. Audio downloads are bounded, public HTTPS only, DNS-pinned,
-and normalized through ffmpeg with local-file/pipe protocols. Results become local media; adding musical Sources or
-placements still uses commands. Offline source analysis is optional and is distinct from future realtime pitch detection.
-Generated vocal separation currently accepts generated sources, not arbitrary local imports.
-
-## Roadmap
-
-Microphone capture/count-in, latency compensation, live pitch correction, multi-user access, and hosted adapters remain
-separate future work. Current local audio editing and playback do not depend on provider availability.
-
-## Workspace UI source
-
-The shell originated from official shadcn/ui sidebar-15, Base UI/base-nova:
-https://ui.shadcn.com/r/styles/base-nova/sidebar-15.json (retrieved 2026-11-03). Shared tokens and primitives now
-use flat graphite surfaces, acid-yellow actions, mint playback feedback and Geist typography. Home and global
-library pages retain project navigation and restrained layouts. The studio hides global navigation and shows a
-project-name file menu, save state and undo above the workspace tools/transport row. Producer exists only inside
-projects. Global audio/instrument browsing never selects or creates a project.
-
-Library and Producer enter/exit horizontally; clip editors and mixer enter/exit vertically with retained closing
-content and reduced-motion handling. Arrangement and library drags share ClipDragPreview. Editing surfaces disable
-native text selection while inputs remain selectable. Actual note/waveform data drives previews and audition progress.
-Adaptive atmosphere shaders and music-reactive backgrounds remain a deferred proposal, with no implementation.
-
-
-## Lightweight operation history
-
-Each accepted command updates the authoritative Project document once and writes only its forward/inverse deltas to Operation. Scalar deltas contain a stable-ID path and value; insert/remove/move deltas preserve entity identity and order. Deleted tracks retain their own subtree for restoration, without unrelated tracks. Creation is a non-undoable baseline. A lock history payload is independent of unrelated project size. The current document is still validated, diffed, and written, so this does not make every edit constant-time or remove project-sized processing.
-
-Updates use database compare-and-swap on project ID and expected_version in the same transaction as history insertion. The internal monotonic counter stays in APIs for stale-edit protection and is not displayed. ProjectRead.can_undo reports actual remaining active history. Undo walks backward through ordinary operations, skips already compensated operations, and remains correct after restart or an edit following undo. Ordinary commands retain locked-section validation; undo restores server-owned prior values through internal deltas, not unrestricted client restoration commands.
-
-Startup backs up a legacy SQLite database using SQLite's backup API before schema/history changes, to backend/data/demotif.db.pre-operations-<UTC timestamp>.bak. An additive operations table is created, then adjacent legacy snapshots are converted transactionally. The baseline entry doubles as a completed-migration marker. Missing revisions, inconsistent current state, or invalid deltas abort conversion without a partial project history. Restarting does not duplicate entries or backup completed migrations. Original Revision rows remain untouched; old snapshot undo transitions are imported as actual historical transitions, and subsequent undo uses the new compensation semantics. No historical snapshot pruning is performed. Do not run an old server writer against a migrated database. To roll back, stop the server and restore both the pre-migration database backup and matching code. Hosted storage/provider seams are unaffected.
-
-## Arrangement clip presentation
-
-Arrangement clips display shared source windows with real note or decoded waveform previews. Note strokes retain
-consistent screen-space thickness; waveform density follows display width. The floating move/library preview uses
-the same card content and velocity-driven sway, with faded origin and snapped destination. The ruler supports drag
-seeking and section labels, and Follow centers the playhead outside manual gestures. Audio clip editors retain a
-fixed time scale and horizontal scrolling rather than squeezing long recordings into the viewport.
-
-
-## Explicit saves and editing drafts
-
-Opening a saved project creates an isolated server-validated draft with the saved project ID and base version.
-Examples open as drafts without a saved base. Drafts use the same typed command, media ownership, lock and
-append-only undo protocol, but never appear in project listings. Their accepted name/document is compared with
-an opening/save checkpoint to report unsaved changes, including a clean result after undo restores that content.
-
-`POST /api/projects/{id}/drafts` opens a regular project. `POST /api/projects/{draft_id}/save` accepts an expected
-draft version, optional `save_as` and name. Save publishes the accepted snapshot to its saved base using a version
-compare-and-swap; Save as creates a saved project and gives the draft that new base. Saving copies media ownership
-while retaining immutable local blobs. Draft and saved-project changes commit atomically. Examples require Save as.
-A stale saved base cannot be overwritten from another tab; the draft remains available to save separately.
-
-The browser's native `beforeunload` warning covers accepted-but-unsaved content, pending commands/uploads/saves,
-and uncommitted inputs. Data-router navigation blocking converts dirty in-app exits into full document
-navigation, so the same native warning also covers browser Back; cancelled POP navigation first restores the
-original URL. A completed draft edit is not a completed project save. Draft URLs support reload/recovery;
-server retention does not make the draft a saved/listed project. Existing saved projects are preserved by an additive
-schema migration with a pre-migration SQLite backup.
-
-## Audio engine scope
-
-Synthesis, realtime playback, clip loops and OfflineAudioContext WAV export stay in the browser. There is no
-backend mix-render service or realtime audio streaming. Backend audio jobs are optional generation and analysis
-adapters, independent of the playback graph.
+Microphone capture/count-in, latency compensation, live pitch correction, multi-user access, hosted storage/database,
+and adaptive studio atmospheres remain separate work. Playback/export does not depend on provider availability.
