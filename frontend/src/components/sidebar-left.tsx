@@ -1,7 +1,7 @@
 // Adapted from official base-nova/sidebar-15; see docs/architecture.md.
 import { useQuery } from '@tanstack/react-query'
 import { AudioLines, FolderOpen, Music2, Piano } from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
+import { usePathname } from 'next/navigation'
 import { BrandWordmark } from '@/components/brand-wordmark'
 import { listProjects } from '@/lib/api'
 import {
@@ -24,7 +24,7 @@ export function SidebarLeft() {
     isPending,
     error,
   } = useQuery({ queryKey: ['projects'], queryFn: listProjects })
-  const { pathname } = useLocation()
+  const pathname = usePathname()
   const { setOpenMobile } = useSidebar()
   return (
     <Sidebar className="border-r-0">
@@ -34,7 +34,7 @@ export function SidebarLeft() {
             <SidebarMenuButton
               size="lg"
               className="hover:bg-transparent active:bg-transparent data-open:bg-transparent"
-              render={<Link to="/" />}
+              render={<a href="/" />}
               onClick={() => setOpenMobile(false)}
             >
               <BrandWordmark />
@@ -43,7 +43,7 @@ export function SidebarLeft() {
           <SidebarMenuItem>
             <SidebarMenuButton
               isActive={pathname === '/'}
-              render={<Link to="/" />}
+              render={<a href="/" />}
               onClick={() => setOpenMobile(false)}
             >
               <FolderOpen />
@@ -82,7 +82,7 @@ export function SidebarLeft() {
                 <SidebarMenuItem key={project.id}>
                   <SidebarMenuButton
                     isActive={pathname === `/studio/${project.id}`}
-                    render={<Link to={`/studio/${project.id}`} />}
+                    render={<a href={`/studio/${project.id}`} />}
                     onClick={() => setOpenMobile(false)}
                   >
                     <Music2 />
@@ -104,7 +104,7 @@ export function SidebarLeft() {
                 <SidebarMenuItem key={label}>
                   <SidebarMenuButton
                     isActive={pathname === path}
-                    render={<Link to={path} />}
+                    render={<a href={path} />}
                     onClick={() => setOpenMobile(false)}
                   >
                     <Icon />

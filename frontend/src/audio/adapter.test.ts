@@ -1,3 +1,4 @@
+import { effectsSchema } from '@/shared/schema'
 import { describe, expect, it } from 'vitest'
 import { renderProject, emptySource, beatsPerBar } from './adapter'
 import type { Project } from '@/types/project'
@@ -34,7 +35,7 @@ function project(): Project {
           name: 'Master',
           gain: 1,
           bus_id: null,
-          effects: {},
+          effects: effectsSchema.parse({}),
           automation: [
             { parameter: 'gain', points: [{ time: 4, value: 0.5 }] },
           ],
@@ -53,7 +54,7 @@ function project(): Project {
           locked: false,
           gain: 1,
           bus_id: null,
-          effects: {},
+          effects: effectsSchema.parse({}),
           clips: [
             {
               id: 'c',

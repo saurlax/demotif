@@ -53,7 +53,7 @@ export interface OscillatorSettings {
   bypassFilter?: boolean
 }
 export interface SynthSettings {
-  oscillators?: OscillatorSettings[]
+  oscillators?: OscillatorSettings[] | null
   resonance?: number
   filterDrive?: number
   keytrack?: number

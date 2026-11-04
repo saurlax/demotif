@@ -1,3 +1,4 @@
+import { synthSchema } from '@/shared/schema'
 import type {
   Project as StoredProject,
   Clip as StoredClip,
@@ -157,7 +158,7 @@ export function emptySource(
     notes: [],
     sound,
     drum_kit: 'studio',
-    synth: {},
+    synth: synthSchema.parse({}),
     sampler: null,
     drum_samples: [],
   }

@@ -7,7 +7,8 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'next/navigation'
+import { navigate } from '@/lib/navigation'
 import { BottomPanel } from '@/components/bottom-panel'
 import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
@@ -42,10 +43,9 @@ import { useStudioStore } from '@/stores/studio'
 import type { Project, Source, ProducerCommand } from '@/types/project'
 
 export function StudioPage() {
-  const { projectId = '' } = useParams(),
+  const { projectId = '' } = useParams<{projectId:string}>(),
     queryClient = useQueryClient()
-  const [params] = useSearchParams()
-  const navigate = useNavigate()
+  const params = useSearchParams()
   const session = useProducerSession(projectId)
   const {
     data: project,
@@ -65,7 +65,7 @@ export function StudioPage() {
       queryClient.setQueryData(['project', project.id], project)
       navigate(`/studio/${project.id}`, { replace: true })
     }
-  }, [project, projectId, queryClient, navigate])
+  }, [project, projectId, queryClient])
   const [notice, setNotice] = useState<string | null>(null),
     [library, setLibrary] = useState(false),
     [editor, setEditor] = useState<string | null>(null),
@@ -366,7 +366,7 @@ export function StudioPage() {
           {error ? (
             <>
               <span>{error.message}</span>
-              <Button variant="outline" render={<a href="/" />}>
+              <Button variant="outline" nativeButton={false} render={<a href="/" />}>
                 Projects
               </Button>
             </>

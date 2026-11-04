@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useState, type ReactNode } from 'react'
-import { ThemeProvider } from '@/components/theme-provider'
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+import { ThemeProvider } from "@/components/theme-provider";
 
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -12,7 +12,7 @@ export function Providers({ children }: { children: ReactNode }) {
           queries: { retry: 1, staleTime: 5_000 },
         },
       }),
-  )
+  );
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -20,5 +20,5 @@ export function Providers({ children }: { children: ReactNode }) {
         <TooltipProvider delay={300}>{children}</TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
-  )
+  );
 }

@@ -1,0 +1,13 @@
+[project]
+name = "demotif-analysis"
+version = "0.1.0"
+description = "Optional offline audio-to-notes subprocess for Demotif"
+requires-python = ">=3.13"
+dependencies = ["librosa==0.11.0"]
+
+[dependency-groups]
+dev = ["pytest>=9.2.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["."]

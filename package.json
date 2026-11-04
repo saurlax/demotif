@@ -1,0 +1,15 @@
+{
+  "name": "demotif-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend start",
+    "test": "npm --prefix frontend test",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "migrate:local": "node scripts/migrate-local-data.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -545,45 +545,6 @@ export function PartEditor({
           {source.kind === 'audio' ? 'Clip settings' : 'Sound'}
         </DialogTrigger>
         <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label="Duplicate source"
-          onClick={() => {
-            const copy = {
-              ...source,
-              id: crypto.randomUUID(),
-              name: `${source.name} copy`,
-            }
-            void commit([
-              { type: 'source.add', source: copy },
-              {
-                type: 'part.add',
-                part: {
-                  id: crypto.randomUUID(),
-                  name: copy.name,
-                  source_id: copy.id,
-                  offset: 0,
-                  duration: copy.duration,
-                },
-              },
-              ...(clip
-                ? [
-                    {
-                      type: 'clip.update' as const,
-                      track_id: project.document.tracks.find((t) =>
-                        t.clips.some((c) => c.id === clip.id),
-                      )!.id,
-                      clip_id: clip.id,
-                      source_id: copy.id,
-                    },
-                  ]
-                : []),
-            ])
-          }}
-        >
-          <Copy />
-        </Button>
-        <Button
           className="ml-auto"
           size="icon-xs"
           variant="ghost"
@@ -978,6 +939,8 @@ export function PartEditor({
                             voices: 1,
                             detune: 0,
                             spread: 0.5,
+                            pan: 0,
+                            bypassFilter: false,
                           },
                         ],
                       },

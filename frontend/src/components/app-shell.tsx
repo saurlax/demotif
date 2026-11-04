@@ -1,8 +1,9 @@
 // Source: https://ui.shadcn.com/r/styles/base-nova/sidebar-15.json
-import { useEffect, useState, type ReactNode } from 'react'
-import { useBlocker, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { PanelRight } from 'lucide-react'
 import { hasDraftChanges } from '@/features/studio/save-status'
+import { navigate, registerNavigationGuard } from '@/lib/navigation'
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from '@/components/ui/alert-dialog'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BrandWordmark } from '@/components/brand-wordmark'
 import { SidebarLeft } from '@/components/sidebar-left'
@@ -38,27 +39,15 @@ export function AppShell({
   hasUnsavedChanges?: () => boolean
   studio?: boolean
 }) {
-  const location = useLocation()
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    const blocked = studio && currentLocation.pathname !== nextLocation.pathname &&
-      (!!hasUnsavedChanges?.() || hasDraftChanges(document))
-    return blocked
-  })
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return
-    const destination = `${blocker.location.pathname}${blocker.location.search}${blocker.location.hash}`
-    const origin = `${location.pathname}${location.search}${location.hash}`
-    const leave = () => {
-      if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== origin) return
-      blocker.reset()
-      window.location.assign(destination)
-    }
-    // POP blocking restores history asynchronously. Wait for that restoration so
-    // cancelling the native prompt leaves both the URL and the draft intact.
-    if (`${window.location.pathname}${window.location.search}${window.location.hash}` === origin) leave()
-    else window.addEventListener('popstate', leave)
-    return () => window.removeEventListener('popstate', leave)
-  }, [blocker, location])
+  const [leaveOpen, setLeaveOpen] = useState(false)
+  const unsavedChanges = useRef(hasUnsavedChanges)
+  useEffect(() => { unsavedChanges.current = hasUnsavedChanges }, [hasUnsavedChanges])
+  const leaveDecision = useRef<((leave: boolean) => void) | null>(null)
+  const decideLeave = (leave: boolean) => {
+    leaveDecision.current?.(leave)
+    leaveDecision.current = null
+    setLeaveOpen(false)
+  }
   const [wide, setWide] = useState(
     () => window.matchMedia('(min-width: 1024px)').matches,
   )
@@ -66,14 +55,33 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false)
   useEffect(() => {
     if (!studio) return
+    const isDirty = () => !!unsavedChanges.current?.() || hasDraftChanges(document)
     const confirmLeave = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges?.() && !hasDraftChanges(document)) return
+      if (!isDirty()) return
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', confirmLeave)
-    return () => window.removeEventListener('beforeunload', confirmLeave)
-  }, [studio, hasUnsavedChanges])
+    const unregister = registerNavigationGuard(async () => {
+      if (isDirty()) {
+        const leave = await new Promise<boolean>((resolve) => {
+          leaveDecision.current?.(false)
+          leaveDecision.current = resolve
+          setLeaveOpen(true)
+        })
+        if (!leave) return false
+      }
+      // The user has already confirmed this departure; do not ask a second time.
+      window.removeEventListener('beforeunload', confirmLeave)
+      return true
+    })
+    return () => {
+      unregister()
+      leaveDecision.current?.(false)
+      leaveDecision.current = null
+      window.removeEventListener('beforeunload', confirmLeave)
+    }
+  }, [studio])
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)')
     const update = () => setWide(media.matches)
@@ -83,6 +91,18 @@ export function AppShell({
   const showProducer = studio && !!rightPanel
   return (
     <SidebarProvider className={`app-shell h-svh min-h-0 overflow-hidden ${studio ? 'studio-theme' : ''}`}>
+      <AlertDialog open={leaveOpen} onOpenChange={(open) => { if (!open) decideLeave(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>Leave without saving your changes?</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => decideLeave(false)}>Keep editing</Button>
+            <Button onClick={() => decideLeave(true)}>Leave without saving</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {!studio && <SidebarLeft />}
       <SidebarInset className="min-w-0 overflow-hidden">
         <header className="app-header sticky top-0 flex min-h-14 shrink-0 items-center gap-2 border-b bg-background">
@@ -92,6 +112,11 @@ export function AppShell({
                 <a
                   href="/"
                   aria-label="Demotif home"
+                  onClick={(event) => {
+                    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                    event.preventDefault()
+                    navigate('/')
+                  }}
                   className="flex h-9 shrink-0 items-center gap-2 rounded-md px-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <BrandWordmark />
