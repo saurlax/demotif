@@ -26,19 +26,19 @@ Generation and analysis are distinct provider operations whose results require e
 
 ## Layout and commands
 
-- `frontend/src/app/`: Next.js routes, root layout, client workspace boundary, and Node API route handlers.
-- `frontend/src/shared/schema.ts`: runtime Zod document/command validation; frontend types derive from these schemas.
-- `frontend/src/server/`: project services, SQLite adapter, reversible deltas, media, examples, producer, audio jobs.
-- `frontend/src/features/`, `components/`: studio, project management, libraries and shared shadcn/Base UI.
-- `frontend/src/audio/`: existing browser DSP, Worker scheduling, loading, graph, effects, export and adapter.
+- `src/app/`: Next.js routes, root layout, client workspace boundary, and Node API route handlers.
+- `src/shared/schema.ts`: runtime Zod document/command validation; frontend types derive from these schemas.
+- `src/server/`: project services, SQLite adapter, reversible deltas, media, examples, producer, audio jobs.
+- `src/features/`, `components/`: studio, project management, libraries and shared shadcn/Base UI.
+- `src/audio/`: existing browser DSP, Worker scheduling, loading, graph, effects, export and adapter.
 - `resources/`: built-in sound catalog, WAV files, provenance and licenses.
 - `analysis/`: optional isolated Python/librosa transcription command and tests; no web framework or agent harness.
-- `data/`: ignored SQLite, media and local examples. Legacy `backend/data/` remains only as local rollback material.
+- `data/`: ignored SQLite, media and local examples. Legacy local files are archived outside the checkout as rollback material.
 - `scripts/migrate-local-data.mjs`: non-destructive copy of legacy local state and ignored configuration.
 
-Node.js 24+ supplies `node:sqlite`; no native npm database addon is needed. Install with `npm ci --prefix frontend`.
-`npm run dev` serves UI and API on 5173. `npm run build`, `npm start`, `npm test`, and `npm run typecheck` delegate
-to the Next.js package. Vitest tests the browser engine and Node services. Optional analysis uses `uv sync --project analysis`.
+Node.js 24+ supplies `node:sqlite`; no native npm database addon is needed. Install with `npm ci`.
+`npm run dev` serves UI and API on 5173. `npm run build`, `npm start`, `npm test`, and `npm run typecheck` run
+directly from the repository root. Vitest tests the browser engine and Node services. Optional analysis uses `uv sync --project analysis`.
 
 The application is intended for a persistent local Node process. It requires a writable local filesystem and is not
 ready for ephemeral/serverless deployment or multiple independent API replicas. There is no authentication boundary yet.

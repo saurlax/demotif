@@ -12,7 +12,6 @@ __pycache__/
 .ruff_cache/
 
 # Local data
-backend/data/
 data/
 *.db
 *.sqlite3
@@ -33,3 +32,7 @@ Thumbs.db
 # Next.js
 .next/
 next-env.d.ts
+
+# Local environment variants
+.env.*
+!.env.example

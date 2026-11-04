@@ -5,10 +5,10 @@ browser owns real-time audio.
 
 ## Layout
 
-- `frontend/` — Next.js 16 App Router + React + TypeScript + Tailwind v4 + shadcn/Base UI; serves UI and Node API.
-- `frontend/src/shared/schema.ts` — shared runtime Zod schemas; UI types derive from them.
-- `frontend/src/server/` — SQLite, typed commands/history, drafts, media, AI SDK producer and audio jobs.
-- `frontend/src/audio/` — browser DSP, Web Audio graph and Workers.
+- `src/app/` — Next.js 16 App Router + React + TypeScript + Tailwind v4 + shadcn/Base UI; serves UI and Node API.
+- `src/shared/schema.ts` — shared runtime Zod schemas; UI types derive from them.
+- `src/server/` — SQLite, typed commands/history, drafts, media, AI SDK producer and audio jobs.
+- `src/audio/` — browser DSP, Web Audio graph and Workers.
 - `resources/` — built-in sound catalog/media and licenses.
 - `analysis/` — optional Python 3.13/librosa transcription subprocess; no Python HTTP server.
 - `data/` — ignored local database, media and example packs.
@@ -17,16 +17,16 @@ browser owns real-time audio.
 ## Commands
 
 ```bash
-npm ci --prefix frontend
+npm ci
 npm run dev                        # Next.js UI + API, port 5173
 npm run build
 npm start
 npm test                           # browser audio + Node service tests
 npm run typecheck
-npm --prefix frontend run lint
+npm run lint
 uv sync --project analysis         # optional offline transcription only
 uv run --project analysis pytest
-npm run migrate:local              # copy legacy state; retain original files
+npm run migrate:local -- /path/to/legacy-server # copy external legacy state; retain originals
 ```
 
 ## Invariants
@@ -71,7 +71,7 @@ invariants above when they apply.
   plain **Demotif**, with an uppercase D and without the empty-set symbol. Reuse the shared outlined SVG
   wordmark component, not live text or a separate generic music icon. Its Geist 500 letterforms and crossed-o symbol
   share one geometry; regenerate assets with `uv run scripts/generate_brand.py`. Preserve the aspect ratio and
-  monochrome treatment; navigation displays it at 18px high. Font licensing is retained in `frontend/branding/OFL.txt`.
+  monochrome treatment; navigation displays it at 18px high. Font licensing is retained in `branding/OFL.txt`.
 - Customize the shared shadcn/Base UI tokens and components directly, including the home page, global library,
   studio, buttons, inputs, cards, and dialogs. Use Geist typography, neutral charcoal/silver surfaces, amber primary actions,
   mint playback/status feedback, and readable track/source colors. Take layout cues from DJ decks and samplers:
@@ -80,7 +80,7 @@ invariants above when they apply.
   toolbars, inset shadows, ambient glows, and hover lifts; color and outlines communicate state. Do not add
   decorative turntables or fake meters. Home and library layouts stay restrained
   within this same visual system; restrained does not mean leaving their old styling unchanged.
-  Keep all colors in the shared light/dark tokens in `src/index.css`: amber for actions/selection, mint for
+  Keep all colors in the shared light/dark tokens in `src/app/globals.css`: amber for actions/selection, mint for
   playback and ready states, muted musical hues for track/note data. Reuse track tokens in clip/library/drag previews;
   preserve stored custom colors. Home project icons use the brand color rather than arbitrary alternating accents.
   Keep musical editing geometry stable during interaction animations; honor reduced motion.
