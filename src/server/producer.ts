@@ -99,6 +99,7 @@ Only propose typed reversible project edits. Musical time is quarter-note beats;
 Sources are shared. Respect locks. Never invent existing media IDs. Create stable IDs for new tracks, sources and notes.
 Create sources, then place clips; a saved library clip alone is not audible. Use installed synth sounds. Vocal sources use monophonic notes and vocal metadata with note-ID syllables; use list_singing_voices before choosing a voice. Stage vocal edits through propose_edits. Synthesis uses the accepted score, so ask the user to apply pending edits before rendering. Never claim automatic pitch or duration prediction if a voice does not support it.
 Use audio processing only when requested. Transcription needs review: keep original audio and place notes on a muted new track.
+Use the supplied accepted project version for render_vocal.expected_version; staged edits do not advance it. Never guess or enumerate versions. On version_conflict, stop rendering and ask for a fresh request against the updated project.
 Stage at most four edits per tool call. Explain what is proposed, never claim it is already applied.
 Do not expose internal reasoning or promise microphone recording, external plugins or unavailable capabilities.`;
 export function createProducerTools(
@@ -107,6 +108,7 @@ export function createProducerTools(
   processAudio?: (
     input: z.infer<typeof audioRequestSchema>,
   ) => Promise<unknown>,
+  context?: { project_id: string; accepted_version: number },
 ) {
   let staged = structuredClone(document);
   const commands: Command[] = [];
@@ -132,14 +134,14 @@ export function createProducerTools(
       count: parsed.length,
       status: "proposed",
     });
-    return { status: "staged_for_review", project: staged };
+    return { status: "staged_for_review", project: staged, ...context };
   }
   const tools = {
     inspect_project: tool({
       description:
         "Read the staged project. Musical time is beats; audio sources use seconds.",
       inputSchema: z.object({}),
-      execute: async () => staged,
+      execute: async () => ({ ...staged, ...context }),
     }),
     list_sounds: tool({
       description: "List installed sounds and drum kits; no generation.",
@@ -260,6 +262,7 @@ export async function produce(
       }
       return { results: sources, status: "proposed_for_review" };
     },
+    { project_id: p.id, accepted_version: p.version },
   );
   const provider = createOpenAI({
     apiKey: config.producerKey,
@@ -307,7 +310,7 @@ export async function produce(
     {
       role: "user",
       content:
-        "Project data:\n" +
+        `Accepted project version: ${p.version} (staged edits do not change this version).\nProject data:\n` +
         JSON.stringify(JSON.parse(p.document)) +
         "\nUser:\n" +
         prompt,

@@ -2,6 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { Store } from '../db'
 import { getProject } from '../projects'
+import { ApiError } from '../errors'
 import { vocals, voices } from './jobs'
 
 export function vocalTools(db: Store, projectId: string, emit?: (event: Record<string, unknown>) => void) {
@@ -19,7 +20,12 @@ export function vocalTools(db: Store, projectId: string, emit?: (event: Record<s
           emit?.({ type: 'tool', name: 'render_vocal', status: result.status })
           return result
         }
-        catch (e) { return { error: e instanceof Error ? e.message : 'Vocal rendering failed' } }
+        catch (e) {
+          return { error: e instanceof Error ? e.message : 'Vocal rendering failed',
+            ...(e instanceof ApiError ? { code: e.code, ...e.payload } : {}),
+            ...(e instanceof ApiError && e.code === 'version_conflict' ? { action: 'Stop this render attempt. Do not guess versions; start a fresh request against the updated project.' } : {}),
+          }
+        }
       },
     }),
     vocal_status: tool({

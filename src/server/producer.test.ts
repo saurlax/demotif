@@ -170,3 +170,18 @@ it('stages vocal score edits through approval and reports missing voices without
   expect(result).toMatchObject({ error: expect.stringContaining('not installed') })
   expect(getProject(db, p.id).version).toBe(2)
 })
+
+it('exposes the accepted version without advancing it when staging edits', async () => {
+  const session = createProducerTools(documentSchema.parse({}), () => {}, undefined,
+    { project_id: 'project', accepted_version: 7 })
+  session.propose([{ type: 'project.set_tempo', tempo: 156 }])
+  const inspected = await session.tools.inspect_project.execute!({}, { toolCallId: 'inspect', messages: [], context: {} })
+  expect(inspected).toMatchObject({ project_id: 'project', accepted_version: 7, tempo: 156 })
+})
+it('returns actionable version conflicts from vocal tools without scheduling synthesis', async () => {
+  const { vocalTools } = await import('./vocals/tools')
+  const project = createProject(db, 'Version check')
+  const result = await vocalTools(db, project.id).render_vocal.execute!(
+    { source_id: 'singer', expected_version: project.version + 1 }, { toolCallId: 'render', messages: [], context: {} })
+  expect(result).toMatchObject({ code: 'version_conflict', current_version: project.version, action: expect.stringContaining('Do not guess') })
+})
