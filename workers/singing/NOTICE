@@ -1,0 +1,18 @@
+Demotif singing worker uses an operator-installed OpenVPI DiffSinger checkout.
+Reference revision: 12da2afc5f948b65f3d4fee9e0f3893427f841f9 (v1.5.0).
+Upstream: https://github.com/openvpi/DiffSinger
+Copyright: the DiffSinger authors and OpenVPI contributors.
+License: Apache License 2.0; see third_party/DiffSinger-LICENSE.txt.
+
+native.py reproduces the two-entry decoder registry from src/diffsinger_task.py
+and avoids eager imports of unrelated training/vocoder modules. The acoustic
+model, diffusion sampler and NSF-HiFiGAN computation are imported from the
+pinned checkout, not reimplemented or converted to ONNX.
+
+Model weights are not included. The official female-triplet demo checkpoint
+prohibits commercial use and requires speaker attribution as described at:
+https://github.com/openvpi/DiffSinger/releases/tag/v1.5.0
+The demo explicitly selects only the opencpop speaker (speaker ID 0).
+The community NSF-HiFiGAN vocoder weights have separate non-commercial terms:
+https://openvpi.github.io/vocoders/
+The experimental profile does not authorize commercial deployment.

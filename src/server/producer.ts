@@ -1,3 +1,4 @@
+import { vocalTools } from "./vocals/tools";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   streamText,
@@ -96,7 +97,7 @@ export function producerHistory(db: Store, id: string) {
 const instructions = `You are Demotif's music producer. Respond in the user's language. Read the project before proposing edits.
 Only propose typed reversible project edits. Musical time is quarter-note beats; recorded audio source windows use seconds.
 Sources are shared. Respect locks. Never invent existing media IDs. Create stable IDs for new tracks, sources and notes.
-Create sources, then place clips; a saved library clip alone is not audible. Use installed synth sounds.
+Create sources, then place clips; a saved library clip alone is not audible. Use installed synth sounds. Vocal sources use monophonic notes and vocal metadata with note-ID syllables; use list_singing_voices before choosing a voice. Stage vocal edits through propose_edits. Synthesis uses the accepted score, so ask the user to apply pending edits before rendering. Never claim automatic pitch or duration prediction if a voice does not support it.
 Use audio processing only when requested. Transcription needs review: keep original audio and place notes on a muted new track.
 Stage at most four edits per tool call. Explain what is proposed, never claim it is already applied.
 Do not expose internal reasoning or promise microphone recording, external plugins or unavailable capabilities.`;
@@ -314,6 +315,7 @@ export async function produce(
   ];
   const tools = {
     ...session.tools,
+    ...vocalTools(db, p.id, emit),
     ...((audioReady() || analysisReady()) && session.audioTool
       ? { process_audio: session.audioTool }
       : {}),

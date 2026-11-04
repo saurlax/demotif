@@ -30,6 +30,9 @@ export const config = {
   audioURL: env("AUDIO_BASE_URL"),
   audioKey: env("AUDIO_API_KEY"),
   audioBiz: env("AUDIO_BIZ_ID"),
+  singingPython: localPath(env("SINGING_PYTHON", "./workers/singing/.venv/bin/python")),
+  singingModels: localPath(env("SINGING_MODELS_ROOT", "./data/models")),
+  singingDevice: env("SINGING_DEVICE", "cpu"),
   analysisPython: env(
     "ANALYSIS_PYTHON",
     resolve(root, "analysis/.venv/bin/python"),

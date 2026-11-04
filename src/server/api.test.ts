@@ -195,3 +195,21 @@ it("loads multiple verified local example packs as independent drafts", async ()
   expect(a.has_unsaved_changes).toBe(false);
   expect(getProject(db, a.id).name).toBe("Local example");
 });
+
+it('exposes optional voices and validates vocal version, installation and ownership through the API', async () => {
+  const p = createProject(db, 'Vocal API')
+  const { applyCommands } = await import('./projects')
+  applyCommands(db, p.id, { expected_version: 1, commands: [{ type: 'source.add', source: {
+    id: 'singer', kind: 'vocal', duration: 4, notes: [{ id: 'n', pitch: 60, start: 0, duration: 1 }],
+    vocal: { voice_id: 'not-installed', language: 'zh', syllables: { n: { kind: 'syllable', lyric: '你' } } },
+  } }] })
+  expect((await call('/vocal-voices')).status).toBe(200)
+  const missing = await (await call(`/projects/${p.id}/vocal-sources/singer/render`)).json()
+  expect(missing.status).toBe('missing')
+  expect((await call(`/projects/${p.id}/vocal-sources/singer/render?expected_version=1`)).status).toBe(409)
+  expect((await call(`/projects/${p.id}/vocal-renders`, { source_id: 'singer', expected_version: 1 })).status).toBe(409)
+  const unavailable = await call(`/projects/${p.id}/vocal-renders`, { source_id: 'singer', expected_version: 2 })
+  expect(unavailable.status).toBe(503)
+  expect((await unavailable.json()).code).toBe('voice_unavailable')
+  expect((await call(`/projects/${p.id}/vocal-renders/other-request`)).status).toBe(404)
+})

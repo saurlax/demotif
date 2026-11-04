@@ -153,3 +153,20 @@ it("cancels a running model request without publishing a proposal", async () => 
   );
   expect(JSON.parse(requireRun(db, p.id, "cancel").commands)).toEqual([]);
 });
+
+it('stages vocal score edits through approval and reports missing voices without direct mutation', async () => {
+  const { vocalTools } = await import('./vocals/tools')
+  const p = createProject(db, 'Singing')
+  const session = createProducerTools(documentSchema.parse(JSON.parse(p.document)), () => {})
+  session.propose([{ type: 'source.add', source: { id: 'singer', kind: 'vocal', duration: 4,
+    notes: [{ id: 'n', pitch: 60, start: 0, duration: 1 }],
+    vocal: { voice_id: 'not-installed', language: 'zh', syllables: { n: { kind: 'syllable', lyric: '你' } } } } }])
+  expect(JSON.parse(getProject(db, p.id).document).sources).toEqual([])
+  const { applyCommands } = await import('./projects')
+  applyCommands(db, p.id, { expected_version: 1, commands: session.commands })
+  const tools = vocalTools(db, p.id)
+  const execute = tools.render_vocal.execute!
+  const result = await execute({ source_id: 'singer', expected_version: 2 }, { toolCallId: 'test', messages: [], context: {} })
+  expect(result).toMatchObject({ error: expect.stringContaining('not installed') })
+  expect(getProject(db, p.id).version).toBe(2)
+})
