@@ -11,7 +11,7 @@ Demotif combines a browser music studio with a conversational producer. Arrange 
 - Piano roll, drum sequencer, velocity, transpose/quantize, press-and-glide audition, and clip loops.
 - 60 built-in sounds: synthesis voices, drum kits, samples, effects, and CC0 sampled instruments.
 - Track/master/bus mixing, effects, routing, automation, and stereo 44.1 kHz/16-bit WAV export in the browser.
-- Isolated editing drafts, explicit Save/Save as with cross-tab version checks, JSON import, multiple local examples, locks, and persistent undo. Examples require Save as; unsaved edits use the browser's native departure warning.
+- Isolated editing drafts, explicit Save/Save as with cross-tab version checks, JSON import, multiple local examples, locks, and persistent undo. Examples require Save as; unsaved edits prompt before internal navigation, with native departure protection for refresh and tab closure where supported.
 - Optional TypeScript producer with persisted conversation events, streaming progress, explicit proposal application, cancellation, and reconnect support.
 - Optional music/speech/effect generation and generated-vocal separation through an audio gateway. Unknown submissions are never automatically repeated.
 - Optional offline monophonic/percussion transcription for sources up to 30 seconds, in a separate analysis subprocess.
