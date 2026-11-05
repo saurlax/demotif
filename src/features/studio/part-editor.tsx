@@ -1,3 +1,4 @@
+import { editorPlaybackClip } from './editor-playback'
 import { NOTE_GRID, snapNoteDuration, formatNoteDuration, removeEditorNote } from './note-editing'
 import { resolveVocalSource } from '@/audio/vocal-resolution'
 import { hasDraftChanges } from './save-status'
@@ -257,27 +258,7 @@ export function PartEditor({
     const controller = new AbortController()
     setLoopStage('Preparing clip')
     useStudioStore.getState().stop()
-    const synthetic: Clip = clip ?? {
-      id: 'preview',
-      name: source.name,
-      kind: source.kind === 'audio' ? 'audio' : 'midi',
-      source_id: source.id,
-      asset_id: null,
-      start_beat: 0,
-      length_beats:
-        source.kind === 'audio'
-          ? (source.duration * project.document.tempo) / 60
-          : source.duration,
-      offset: 0,
-      source_duration: source.duration,
-      gain: 1,
-      fade_in: 0,
-      fade_out: 0,
-      envelope_offset: 0,
-      envelope_duration: null,
-      locked: false,
-      color: null,
-    }
+    const synthetic = editorPlaybackClip(source, project.document.tempo, clip)
     const track = project.document.tracks.find((t) =>
       t.clips.some((c) => c.id === clip?.id),
     )
@@ -1252,7 +1233,7 @@ function PartCursor({
         cursor.current.style.visibility = t == null ? 'hidden' : 'visible'
         if (t != null) {
           const at =
-            (clip?.offset ?? 0) + t * (source.kind === 'audio' ? 1 : tempo / 60)
+            editorPlaybackClip(source, tempo, clip).offset + t * (source.kind === 'audio' ? 1 : tempo / 60)
           cursor.current.style.left = `${at * scale}px`
         }
       }
