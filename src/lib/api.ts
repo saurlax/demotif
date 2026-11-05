@@ -127,9 +127,11 @@ export function applyBatch(
 export async function uploadAudio(
   projectId: string,
   file: File,
+  kind?: 'recording' | 'vocal' | 'instrument' | 'sample' | 'reference',
 ): Promise<import('@/types/project').MediaAsset> {
   const body = new FormData()
   body.append('file', file)
+  if (kind) body.append('kind', kind)
   const response = await fetch(`${API_BASE}/projects/${projectId}/assets`, {
     method: 'POST',
     body,

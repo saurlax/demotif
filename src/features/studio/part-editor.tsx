@@ -43,6 +43,7 @@ export function PartEditor({
   commit,
   onClose,
   onError,
+  onRecordReference,
 }: {
   interactive?: boolean
   project: Project
@@ -52,6 +53,7 @@ export function PartEditor({
   commit: (commands: ProducerCommand[], throwOnError?: boolean) => Promise<void>
   onClose: () => void
   onError: (message: string) => void
+  onRecordReference?: () => void
 }) {
   const [selected, setSelected] = useState<string | null>(null),
     [playing, setPlaying] = useState(false)
@@ -558,6 +560,7 @@ export function PartEditor({
           </>
         )}
         {source.vocal && <>
+          <Button size="sm" variant="ghost" disabled={parameterSaving} onClick={onRecordReference}>Record reference</Button>
           <VocalLyrics source={source} disabled={!unlocked || parameterSaving} update={(vocal) => update({ vocal })} />
           <VocalRenderControls project={project} source={source} disabled={parameterSaving} onError={onError} />
         </>}
