@@ -33,9 +33,9 @@ context: |
   - Use npm for the Next.js app; uv for optional analysis and native singing inference.
   - Keep new dependencies justified by the change; update .env.example when configuration is added.
   - Implemented: browser audio/Workers and WAV export, clip/note/audio editing, mixing, built-in library,
-    server-validated commands and undo, isolated drafts with explicit Save/Save as, multiple local examples,
+    server-validated commands and undo, guided vocal reference recording, isolated drafts with explicit Save/Save as, multiple local examples,
     optional TypeScript AI SDK producer, durable audio-provider jobs, and optional offline transcription.
-  - Not yet implemented: microphone recording, live pitch correction, auth, hosted storage/database, adaptive
+  - Not yet implemented: live pitch correction, auth, hosted storage/database, adaptive
     atmosphere effects. Keep real-time instrumental synthesis, playback and mix export in the browser. Optional score-driven singing uses a native PyTorch subprocess under workers/singing; Next.js owns jobs, assets and the project model.
 
 rules:

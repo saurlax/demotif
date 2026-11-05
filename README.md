@@ -16,7 +16,7 @@ Demotif combines a browser music studio with a conversational producer. Arrange 
 - Optional music/speech/effect generation and generated-vocal separation through an audio gateway. Unknown submissions are never automatically repeated.
 - Optional offline monophonic/percussion transcription for sources up to 30 seconds, in a separate analysis subprocess.
 
-Microphone recording, live pitch correction, authentication, and hosted deployment remain future work.
+Vocal editors support [lyric-guided microphone reference recording](docs/vocal-recording.md), take review/re-record, WAV download and explicit saving into the current draft. Live pitch correction, authentication, and hosted deployment remain future work.
 
 ## Development
 
