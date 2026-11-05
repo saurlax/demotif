@@ -1,3 +1,6 @@
+import { VocalRecordingDialog } from './vocal-recording-dialog'
+import { referenceCommands, type ReferenceSnapshot } from './reference-recording'
+import type { VocalTake } from '@/audio/vocal-recorder'
 import { notifyError } from '@/lib/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -40,7 +43,7 @@ import {
   mediaUrl,
 } from '@/lib/api'
 import { useStudioStore } from '@/stores/studio'
-import type { Project, Source, ProducerCommand } from '@/types/project'
+import type { Project, Source, Clip, ProducerCommand } from '@/types/project'
 
 export function StudioPage() {
   const { projectId = '' } = useParams<{projectId:string}>(),
@@ -75,8 +78,12 @@ export function StudioPage() {
     [persisting, setPersisting] = useState(false),
     [saveAsOpen, setSaveAsOpen] = useState(false),
     [height, setHeight] = useState(310)
+  const [recording, setRecording] = useState<{ source: Source; clip?: Clip } | null>(null)
+  const recordingDirty = useRef(false)
+  const onRecordingState = useCallback((dirty: boolean) => { recordingDirty.current = dirty }, [])
+  const recordingSave = useRef<{ takeId: string; assetId?: string; commands?: ProducerCommand[]; expectedVersion?: number; requestId: string } | null>(null)
   const [saves] = useState(() => createSaveTracker(setSaving))
-  const hasUnsavedChanges = () => !!current.current?.has_unsaved_changes || saves.isSaving() || persisting || !!session.applying
+  const hasUnsavedChanges = () => recordingDirty.current || !!current.current?.has_unsaved_changes || saves.isSaving() || persisting || !!session.applying
   const preparingEdits = useRef(0)
   const saveInFlight = useRef(false)
   const input = useRef<HTMLInputElement>(null),
@@ -132,6 +139,7 @@ export function StudioPage() {
   }, [projectId])
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (recording) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         // The save buttons handle Save as for example drafts; regular drafts support Cmd/Ctrl+S.
         e.preventDefault()
@@ -332,6 +340,39 @@ export function StudioPage() {
       if (input.current) input.current.value = ''
     }
   }
+  async function saveReference(take: VocalTake, snapshot: ReferenceSnapshot) {
+    const finishSave = saves.begin()
+    const id = projectId
+    const attempt = recordingSave.current?.takeId === take.id ? recordingSave.current
+      : { takeId: take.id, requestId: crypto.randomUUID() } as NonNullable<typeof recordingSave.current>
+    recordingSave.current = attempt
+    try {
+      if (!attempt.assetId) {
+        const asset = await uploadAudio(id, new File([take.blob], `${recording?.source.name ?? 'Vocal'}-reference.wav`, { type: 'audio/wav' }), 'reference')
+        attempt.assetId = asset.id
+      }
+      attempt.commands ??= referenceCommands(take, snapshot, attempt.assetId, recording?.source.name ?? 'Vocal')
+      const run = async () => {
+        const draft = current.current
+        if (!draft || draft.id !== id || !draft.is_draft) throw new Error('Reopen the project to save this reference.')
+        attempt.expectedVersion ??= draft.version
+        try {
+          const result = await applyBatch(id, attempt.expectedVersion, attempt.commands!, attempt.requestId)
+          setProject(result.project)
+        } catch (error) {
+          if (error instanceof ApiError && error.code === 'version_conflict') {
+            attempt.expectedVersion = undefined
+            attempt.requestId = crypto.randomUUID()
+            await queryClient.invalidateQueries({ queryKey: ['project', id] })
+          }
+          throw error
+        }
+      }
+      const pending = queue.current.then(run, run)
+      queue.current = pending.catch(() => {})
+      await pending
+    } finally { finishSave() }
+  }
   async function exportWav() {
     setExporting(true)
     try {
@@ -400,6 +441,9 @@ export function StudioPage() {
         />
       }
     >
+      {recording && <VocalRecordingDialog project={project} source={recording.source} clip={recording.clip}
+        onClose={() => { recordingDirty.current = false; setRecording(null) }}
+        onState={onRecordingState} onSave={saveReference} />}
       <div className="studio-daw flex h-full min-h-0 flex-col overflow-hidden">
         <div className="studio-toolbar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1">
           <Button
@@ -583,6 +627,11 @@ export function StudioPage() {
                         engine={audio.engine}
                         commit={commit}
                         onClose={() => setEditor(null)}
+                        onRecordReference={() => {
+                          useStudioStore.getState().stop()
+                          audio.engine.stop(); audio.engine.stopPart(); audio.engine.stopAudition()
+                          setRecording({ source: structuredClone(source), clip: clip ? structuredClone(clip) : undefined })
+                        }}
                         onError={onError}
                       />
                     )

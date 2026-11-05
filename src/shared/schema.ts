@@ -107,6 +107,28 @@ export const vocalSchema = z.strictObject({
     onset: unit.default(0.5),
   })).default({}),
 });
+export const timeSignature = z
+  .string()
+  .regex(/^(?:[1-9]|[12][0-9]|3[0-2])\/(?:1|2|4|8|16)$/);
+export const tempoSchema = z
+  .number()
+  .min(20)
+  .max(300)
+  .refine(
+    (t) => Math.abs(t * 10 - Math.round(t * 10)) < 1e-8,
+    "Tempo supports one decimal place",
+  );
+export const recordingCueSchema = z.strictObject({
+  note_id: id, text: z.string(), start: nonnegative, end: positive,
+  timing: z.enum(["score", "authored", "estimated"]),
+}).refine((c) => c.end > c.start, "Cue end must follow its start");
+export const referenceRecordingSchema = z.strictObject({
+  source_id: id, project_id: id, project_version: z.number().int().positive(),
+  tempo: tempoSchema, time_signature: timeSignature,
+  source_origin_beat: z.number(), sample_rate: z.number().int().positive(),
+  capture_start_frame: z.number().int().nonnegative(), interrupted: z.boolean(),
+  cues: z.array(recordingCueSchema),
+});
 const sourceObject = z.strictObject({
   id: uid(),
   name: name.default("Clip"),
@@ -120,9 +142,11 @@ const sourceObject = z.strictObject({
   sampler: samplerSchema.nullable().default(null),
   drum_samples: z.array(drumSample).max(32).default([]),
   vocal: vocalSchema.optional(),
+  reference_recording: referenceRecordingSchema.optional(),
 });
 export const sourceSchema = sourceObject.superRefine((s, ctx) => {
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
+  if (s.reference_recording && s.kind !== "audio") fail("Reference recordings require an audio source");
   if (s.kind === "vocal") {
     if (!s.vocal) fail("Vocal sources need a voice and language");
     if (s.asset_id) fail("Vocal sources use editable scores, not an audio asset");
@@ -264,17 +288,6 @@ export const trackSchema = z.object({
   bus_id: id.nullable().default(null),
   clips: z.array(clipSchema).default([]),
 });
-export const timeSignature = z
-  .string()
-  .regex(/^(?:[1-9]|[12][0-9]|3[0-2])\/(?:1|2|4|8|16)$/);
-export const tempoSchema = z
-  .number()
-  .min(20)
-  .max(300)
-  .refine(
-    (t) => Math.abs(t * 10 - Math.round(t * 10)) < 1e-8,
-    "Tempo supports one decimal place",
-  );
 export const documentSchema = z
   .object({
     tempo: tempoSchema.default(120),

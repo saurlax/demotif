@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { PanelRight } from 'lucide-react'
 import { hasDraftChanges } from '@/features/studio/save-status'
-import { navigate, registerNavigationGuard } from '@/lib/navigation'
+import { navigate, registerNavigationGuard, registerDiscardPrompt } from '@/lib/navigation'
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from '@/components/ui/alert-dialog'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BrandWordmark } from '@/components/brand-wordmark'
@@ -62,21 +62,21 @@ export function AppShell({
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', confirmLeave)
+    const prompt = () => new Promise<boolean>((resolve) => {
+      leaveDecision.current?.(false)
+      leaveDecision.current = resolve
+      setLeaveOpen(true)
+    })
+    const unregisterDiscard = registerDiscardPrompt(prompt)
     const unregister = registerNavigationGuard(async () => {
-      if (isDirty()) {
-        const leave = await new Promise<boolean>((resolve) => {
-          leaveDecision.current?.(false)
-          leaveDecision.current = resolve
-          setLeaveOpen(true)
-        })
-        if (!leave) return false
-      }
+      if (isDirty() && !await prompt()) return false
       // The user has already confirmed this departure; do not ask a second time.
       window.removeEventListener('beforeunload', confirmLeave)
       return true
     })
     return () => {
       unregister()
+      unregisterDiscard()
       leaveDecision.current?.(false)
       leaveDecision.current = null
       window.removeEventListener('beforeunload', confirmLeave)
