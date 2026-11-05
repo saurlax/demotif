@@ -6,7 +6,7 @@ Demotif combines a browser music studio with a conversational producer. Arrange 
 
 ## Studio
 
-Microphone recording, live pitch correction, authentication, and hosted deployment remain future work.
+Vocal editors support [lyric-guided microphone reference recording](docs/vocal-recording.md), take review/re-record, WAV download and explicit saving into the current draft. Live pitch correction, authentication, and hosted deployment remain future work.
 
 ## Development
 
