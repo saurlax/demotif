@@ -51,7 +51,7 @@ export function AppShell({
   const [wide, setWide] = useState(
     () => window.matchMedia('(min-width: 1024px)').matches,
   )
-  const [rightOpen, setRightOpen] = useState(true)
+  const [rightOpen, setRightOpen] = useState(!studio)
   const [mobileOpen, setMobileOpen] = useState(false)
   useEffect(() => {
     if (!studio) return

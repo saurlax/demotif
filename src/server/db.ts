@@ -11,6 +11,9 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS browser_uploads (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),asset_id TEXT NOT NULL,filename TEXT NOT NULL,content_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,md5 TEXT NOT NULL,kind TEXT NOT NULL,project_version INTEGER,expires_at INTEGER NOT NULL,completed INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS storage_catalogs (id TEXT PRIMARY KEY,manifest JSON NOT NULL,updated_at DATETIME NOT NULL);
+      CREATE TABLE IF NOT EXISTS audio_exports (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),project_version INTEGER NOT NULL,asset_id TEXT NOT NULL REFERENCES assets(id),created_at DATETIME NOT NULL);
       CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,name TEXT NOT NULL,version INTEGER NOT NULL,document JSON NOT NULL,is_draft BOOLEAN NOT NULL DEFAULT 0,draft_base_id TEXT,draft_base_version INTEGER,draft_example_id TEXT,draft_checkpoint JSON,created_at DATETIME NOT NULL,updated_at DATETIME NOT NULL);
       CREATE TABLE IF NOT EXISTS revisions (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),version INTEGER NOT NULL,name TEXT NOT NULL,summary TEXT NOT NULL,document JSON NOT NULL,created_at DATETIME NOT NULL,UNIQUE(project_id,version));
       CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),kind TEXT NOT NULL,filename TEXT NOT NULL,content_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,storage_key TEXT NOT NULL,created_at DATETIME NOT NULL);
@@ -137,6 +140,9 @@ export async function runtime(): Promise<Runtime> {
       }
     }
     const store = new Store(config.database);
+    const { restoreTree } = await import('./catalogs');
+    await restoreTree(store, 'sounds', config.resources);
+    await restoreTree(store, 'examples', config.examples);
     store.run(
       "UPDATE producer_runs SET status='interrupted' WHERE status='running'",
     );

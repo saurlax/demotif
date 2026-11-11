@@ -1,3 +1,7 @@
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@/components/ui/context-menu'
+import type { AudioContext } from '@/shared/schema'
+import {audioActions,clipAudioActions,type AudioAction} from './audio-context-actions'
+import { randomUUID } from '@/shared/id'
 import { useRef, useState, type CSSProperties } from 'react'
 import { ClipDragPreview } from './clip-drag-preview'
 import { ClipNotePreview } from './clip-note-preview'
@@ -12,6 +16,7 @@ import {
   Copy,
   Trash2,
   LocateFixed,
+  Undo2,
 } from 'lucide-react'
 import { AudioEngine } from '@/audio/audio'
 import { Button } from '@/components/ui/button'
@@ -42,7 +47,19 @@ export function Arrangement({
   onTrack,
   onPlace,
   engine,
+  onContext,
+  onAudioAction,
+  audioBusy=false,
+  onUndo,
+  canUndo,
+  undoPending,
 }: {
+  onUndo:()=>void
+  canUndo:boolean
+  undoPending:boolean
+  audioBusy?:boolean
+  onContext: (context: AudioContext, anchor:{x:number;y:number}) => void
+  onAudioAction: (action:AudioAction,context?:AudioContext) => void
   project: Project
   engine: AudioEngine
   commit: (commands: ProducerCommand[]) => Promise<void>
@@ -51,6 +68,9 @@ export function Arrangement({
   onTrack: (trackId: string) => void
   onPlace: (partId: string, trackId: string, beat: number) => void
 }) {
+  const capturedAudioContext=useRef<AudioContext|undefined>(undefined)
+  const invokeAudioAction=(action:AudioAction)=>onAudioAction(action,capturedAudioContext.current)
+  const [contextKind, setContextKind] = useState<{clip:boolean;audio:boolean;locked:boolean}>({clip:false,audio:false,locked:false})
   const [scale, setScale] = useState(BASE_SCALE),
     [follow, setFollow] = useState(false),
     [scrubbing, setScrubbing] = useState(false)
@@ -74,11 +94,17 @@ export function Arrangement({
   const selected = useStudioStore((s) => s.selectedClipId)
   const tracks = project.document.tracks,
     bar = beatsPerBar(project.document.time_signature)
+  const scoreImports = project.document.abc_imports ?? []
+  const hasChords = scoreImports.some(entry => entry.score.chords.length)
+  const chordTop = project.document.sections.length ? 32 : 0
+  const tickTop = chordTop + (hasChords ? 24 : 0)
   const end = Math.max(
     32,
     ...tracks.flatMap((t) => t.clips.map((c) => c.start_beat + c.length_beats)),
     ...project.document.sections.map((section) => section.start + section.duration),
+    ...scoreImports.map(entry => entry.start_beat + entry.score.duration_beats),
   )
+  const rulerStride=Math.max(1,2**Math.ceil(Math.log2(36/(bar*scale))))
   const width = Math.max(800, (Math.ceil(end / bar) * bar + bar * 4) * scale)
   const clip = tracks.flatMap((t) => t.clips).find((c) => c.id === selected),
     track = tracks.find((t) => t.clips.some((c) => c.id === selected))
@@ -258,7 +284,7 @@ export function Arrangement({
                 {
                   type: 'part.add' as const,
                   part: {
-                    id: crypto.randomUUID(),
+                    id: randomUUID(),
                     name: clip.name,
                     source_id: source.id,
                     offset: clip.offset,
@@ -309,12 +335,28 @@ export function Arrangement({
     window.addEventListener('pointerup', finish, { once: true })
     window.addEventListener('keydown', key)
   }
+  function captureContext(target:HTMLElement,x:number,y:number) {
+    const clipElement=target.closest<HTMLElement>('[data-producer-clip]')
+    const lane=target.closest<HTMLElement>('[data-library-track]')
+    const track=tracks.find(t=>t.id===lane?.dataset.libraryTrack)
+    const clip=track?.clips.find(c=>c.id===clipElement?.dataset.producerClip)
+    const source=project.document.sources.find(s=>s.id===clip?.source_id)
+    const rect=lane?.getBoundingClientRect()??scroll.current!.getBoundingClientRect()
+    const beat=clip?.start_beat??Math.max(0,Math.round((x-rect.left-(lane?0:208))/scale*4)/4)
+    const unit=source?.kind==='audio'||(!source&&clip?.asset_id)?1:60/project.document.tempo
+    capturedAudioContext.current={expected_version:project.version,track_id:track?.id??null,clip_id:clip?.id??null,start_beat:beat,offset_seconds:(clip?.offset??0)*unit,...(clip?{duration_seconds:(clip.source_duration??clip.length_beats*(source?.kind==='audio'?60/project.document.tempo:1))*unit}:{})}
+    onContext(capturedAudioContext.current,{x,y})
+    if(track)useStudioStore.getState().select(track.id,clip?.id)
+    setContextKind({clip:!!clip,audio:source?.kind==='audio'||!!clip?.asset_id,locked:!!track?.locked||!!clip?.locked})
+  }
   return (
-    <section
+    <ContextMenu><ContextMenuTrigger render={<section />}
+      onContextMenu={(event)=>captureContext(event.target as HTMLElement,event.clientX,event.clientY)}
       className="studio-arrangement studio-edit-surface flex min-h-0 min-w-0 flex-1 flex-col bg-background"
       aria-label="Arrangement"
     >
       <div className="studio-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b px-2">
+        <Button variant="ghost" size="icon-sm" aria-label="Undo" title="Undo last change" disabled={!canUndo||undoPending} onClick={onUndo}><Undo2/></Button>
         <Button
           size="icon-xs"
           variant="ghost"
@@ -349,7 +391,7 @@ export function Arrangement({
             void commit([
               {
                 type: 'clip.add',
-                id: crypto.randomUUID(),
+                id: randomUUID(),
                 track_id: track.id,
                 name: clip.name,
                 kind: clip.kind,
@@ -407,14 +449,14 @@ export function Arrangement({
           <Button
             size="icon-xs"
             variant="ghost"
-            onClick={() =>
+            onClick={() => {
               setScale(
-                Math.min(MAX_SCALE, Math.max(
-                  MIN_SCALE,
+                Math.min(MAX_SCALE, Math.max(Number.EPSILON,
                   ((scroll.current?.clientWidth ?? 1000) - 208) / (end + bar),
                 )),
               )
-            }
+              if(scroll.current)scroll.current.scrollLeft=0
+            }}
             aria-label="Fit arrangement"
           >
             <Maximize />
@@ -446,7 +488,7 @@ export function Arrangement({
       >
         <Follow enabled={follow && !drag && !scrubbing} scale={scale} container={scroll} suspended={scrubActive} />
         <div style={{ minWidth: width + 208 }}>
-          <div className={`sticky top-0 z-40 flex bg-background border-b ${project.document.sections.length ? 'h-16' : 'h-8'}`}>
+          <div className="sticky top-0 z-40 flex border-b bg-background" style={{ height: tickTop + 32 }}>
             <div className="sticky left-0 z-40 flex w-52 shrink-0 items-end border-r bg-background px-3 py-2 text-xs text-muted-foreground">
               Tracks
             </div>
@@ -463,15 +505,27 @@ export function Arrangement({
                   <span className="truncate">{section.name}</span>
                 </span>
               ))}
+              {hasChords && (
+                <div aria-label="Imported chords" role="group" className="absolute inset-x-0 h-6 border-b bg-muted/30" style={{ top: chordTop }}>
+                  {scoreImports.flatMap(entry => entry.score.chords.map((chord, index) => {
+                    const next = entry.score.chords[index + 1]?.start ?? entry.score.duration_beats
+                    return <span key={`${entry.id}-${index}`} title={chord.symbol}
+                      className="absolute top-0 h-full truncate border-l px-1 text-xs leading-6 text-muted-foreground"
+                      style={{ left: (entry.start_beat + chord.start) * scale, width: (next - chord.start) * scale }}>
+                      {chord.symbol}
+                    </span>
+                  }))}
+                </div>
+              )}
               {Array.from(
-                { length: Math.ceil(width / (bar * scale)) },
+                { length: Math.ceil(width / (bar * scale * rulerStride)) },
                 (_, i) => (
                   <span
                     key={i}
                     className="absolute border-l px-1 py-2 text-xs text-muted-foreground"
-                    style={{ left: i * bar * scale, top: project.document.sections.length ? 32 : 0 }}
+                    style={{ left: i * rulerStride * bar * scale, top: tickTop }}
                   >
-                    {i + 1}
+                    {i * rulerStride + 1}
                   </span>
                 ),
               )}
@@ -547,6 +601,7 @@ export function Arrangement({
                 <div
                   className="track-lane relative flex-1 border-b"
                   data-library-track={t.id}
+                  onClick={event=>{if(event.target===event.currentTarget){captureContext(event.currentTarget,event.clientX,event.clientY)}}}
                   data-timeline-scale={scale}
                   style={{
                     backgroundImage:
@@ -582,6 +637,8 @@ export function Arrangement({
                         key={c.id}
                         role="button"
                         tabIndex={0}
+                        data-producer-clip={c.id}
+                        data-producer-source={c.source_id??undefined}
                         data-selected={selected === c.id}
                         aria-label={`${c.name}, ${c.length_beats} beats`}
                         onClick={() => onSelect(t.id, c.id)}
@@ -593,7 +650,7 @@ export function Arrangement({
                         className={`studio-clip absolute top-1 flex h-12 touch-none flex-col overflow-hidden rounded-sm border text-left ${drag?.clip.id === c.id ? 'opacity-25' : ''} ${c.locked || t.locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} ${selected === c.id ? 'ring-1 ring-primary border-primary' : 'border-border'}`}
                         style={{
                           left: c.start_beat * scale,
-                          width: Math.max(16, c.length_beats * scale),
+                          width: Math.max(1, c.length_beats * scale),
                           '--clip-color': c.color ?? trackAccent(t, project, trackIndex),
                         } as CSSProperties}
                       >
@@ -645,8 +702,8 @@ export function Arrangement({
               </div>
             ))}
             {!tracks.length && (
-              <div className="p-10 text-center text-sm text-muted-foreground">
-                Add a track or a clip to start.
+              <div tabIndex={0} role="button" aria-label="Generate Sound in arrangement" onClick={event=>{captureContext(event.currentTarget,event.clientX,event.clientY);invokeAudioAction('generate')}} onKeyDown={event=>{if(event.key==='Enter'){const r=event.currentTarget.getBoundingClientRect();captureContext(event.currentTarget,r.left+208,r.top);invokeAudioAction('generate')}}} className="min-h-40 p-10 text-center text-sm text-muted-foreground">
+                Generate a Sound or open the Library.
               </div>
             )}
             <div className="pointer-events-none absolute inset-y-0 left-52 right-0">
@@ -660,7 +717,9 @@ export function Arrangement({
           color={clipPreviewColor(project, drag.clip.source_id, drag.track, drag.clip.color)}
           invalid={!drag.valid} trailing={drag.returning ? 'Move to library' : undefined} />
       )}
-    </section>
+    </ContextMenuTrigger><ContextMenuContent>
+      {clipAudioActions(contextKind.clip,contextKind.audio).map(action=><ContextMenuItem key={action} disabled={contextKind.locked||audioBusy} onClick={()=>invokeAudioAction(action)}>{audioActions[action].label}</ContextMenuItem>)}
+    </ContextMenuContent></ContextMenu>
   )
 }
 import { useEffect } from 'react'

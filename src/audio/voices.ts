@@ -54,33 +54,35 @@ export function synthesize(
       const step =
         (2 **
           ((note.pitch -
-            asset.sampler.rootNote +
+            (note.sample?.rootNote ?? asset.sampler.rootNote) +
             (asset.synth?.detune ?? 0) / 100) /
             12) *
           source.rate) /
         rate
+      const regionStart=Math.max(0,Math.min(source.data.length,Math.floor((note.sample?.offset??0)*source.rate)))
+      const regionEnd=note.sample?Math.min(source.data.length,regionStart+Math.floor(note.sample.duration*source.rate)):source.data.length
       const loopStart = (asset.sampler.loopStart ?? 0) * source.rate
       const loopEnd = (asset.sampler.loopEnd ?? 0) * source.rate
       const looping =
-        !asset.sampler.oneShot &&
+        !note.sample && !asset.sampler.oneShot &&
         loopEnd > loopStart &&
         loopEnd <= source.data.length
       // FL samplers with the volume envelope disabled play through note-off.
       // Keep the score intact; only the rendered voice uses the natural tail.
       const length = Math.min(
         asset.sampler.oneShot
-          ? source.data.length / (step * rate)
+          ? (regionEnd-regionStart) / (step * rate)
           : note.duration,
         asset.duration - note.start,
       )
       const blend = Math.min(source.rate * 0.008, (loopEnd - loopStart) / 4)
-      let at = 0,
+      let at = regionStart,
         filtered = 0
       for (let i = 0; i < length * rate && base + i < data.length; i++) {
         if (looping && at >= loopEnd)
           at =
             loopStart + blend + ((at - loopEnd) % (loopEnd - loopStart - blend))
-        if (at >= source.data.length - 1) break
+        if (at >= regionEnd - 1) break
         const index = Math.floor(at),
           fraction = at - index
         let sample =

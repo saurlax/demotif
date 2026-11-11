@@ -1,7 +1,8 @@
+import { randomUUID } from '@/shared/id'
 import { z } from "zod";
 import { SOUND_IDS } from "@/audio/soundDefinitions";
 
-export const newId = () => crypto.randomUUID().replaceAll("-", "");
+export const newId = () => randomUUID().replaceAll("-", "");
 const id = z.string().min(1).max(200);
 const uid = () => id.default(newId);
 const positive = z.number().positive(),
@@ -16,6 +17,7 @@ export const noteSchema = z.strictObject({
   start: nonnegative.default(0),
   duration: positive.default(1),
   velocity: z.number().positive().max(1).default(0.8),
+  sample: z.strictObject({offset:nonnegative,duration:positive,rootNote:z.number().int().min(0).max(127)}).optional(),
 });
 export const effectsSchema = z.strictObject({
   highpass: z.number().min(20).max(20000).default(20),
@@ -146,6 +148,7 @@ const sourceObject = z.strictObject({
 });
 export const sourceSchema = sourceObject.superRefine((s, ctx) => {
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
+  if(s.notes.some(n=>n.sample)&&(!["notes","drums"].includes(s.kind)||!s.sampler||!s.asset_id||s.drum_samples.length>0))fail("Sample regions require a note or drum sampler source with audio and no competing drum sample bank");
   if (s.reference_recording && s.kind !== "audio") fail("Reference recordings require an audio source");
   if (s.kind === "vocal") {
     if (!s.vocal) fail("Vocal sources need a voice and language");
@@ -275,6 +278,34 @@ export const sectionSchema = z.strictObject({
   duration: positive,
   color: z.string().default("#a1a1aa"),
 });
+const scoreRange = { start: nonnegative, duration: positive };
+const scoreMeter = z.string().regex(/^\d+\/\d+$/);
+export const abcScoreSchema = z.strictObject({
+  abc: z.string().min(1),
+  bpm: positive.int(),
+  meter: scoreMeter,
+  unit_length: z.string().regex(/^(?:1|1\/\d+)$/),
+  duration_beats: positive,
+  bars: z.array(z.strictObject({ ...scoreRange, meter: scoreMeter })).min(1),
+  keys: z.array(z.strictObject({ start: nonnegative, key: z.string().min(1) })).min(1),
+  chords: z.array(z.strictObject({ start: nonnegative, symbol: z.string().min(1) })),
+  sections: z.array(z.strictObject({ ...scoreRange, name: z.string().min(1) })),
+}).refine(score => {
+  const withinScore = [...score.bars, ...score.sections].every(event =>
+    event.start + event.duration <= score.duration_beats + 1e-6,
+  );
+  const timed = [score.keys, score.chords].every(events =>
+    events.every((event, index) => event.start < score.duration_beats && (!index || events[index - 1].start <= event.start)),
+  );
+  return withinScore && timed;
+}, 'Invalid ABC event timing');
+const abcImportSchema = z.strictObject({
+  id: uid(),
+  name,
+  start_beat: nonnegative,
+  lyrics: z.string(),
+  score: abcScoreSchema,
+});
 export const trackSchema = z.object({
   id: uid(),
   name: z.string().default("Track"),
@@ -298,6 +329,7 @@ export const documentSchema = z
     parts: z.array(partSchema).default([]),
     mixer: mixerSchema.default(() => mixerSchema.parse({})),
     sections: z.array(sectionSchema).default([]),
+    abc_imports: z.array(abcImportSchema).optional(),
   })
   .superRefine((d, ctx) => {
     const fail = (message: string) => ctx.addIssue({ code: "custom", message });
@@ -307,6 +339,7 @@ export const documentSchema = z
       d.sources,
       d.parts,
       d.sections,
+      d.abc_imports ?? [],
       d.mixer.buses,
       clips,
     ])
@@ -350,6 +383,12 @@ export const commandSchema = z.discriminatedUnion("type", [
     name: z.string().min(1).max(200),
   }),
   z.object({ type: z.literal("project.set_tempo"), tempo: tempoSchema }),
+  z.object({ type: z.literal("project.set_key"), key: name.nullable() }),
+  z.object({
+    type: z.literal("project.add_abc_score"),
+    imported: abcImportSchema,
+    material: z.strictObject({ tracks: z.array(trackSchema), sources: z.array(sourceSchema) }).optional(),
+  }),
   z.object({
     type: z.literal("project.set_time_signature"),
     time_signature: timeSignature,
@@ -445,3 +484,35 @@ export const commandSchema = z.discriminatedUnion("type", [
 ]);
 export type Document = z.infer<typeof documentSchema>;
 export type Command = z.infer<typeof commandSchema>;
+
+export const audioContextSchema = z.object({
+  expected_version: z.number().int().positive(),
+  track_id: z.string().nullable().default(null),
+  clip_id: z.string().nullable().default(null),
+  start_beat: z.number().nonnegative(),
+  offset_seconds: z.number().nonnegative().default(0),
+  duration_seconds: z.number().positive().optional(),
+  source_id: z.string().optional(),
+  note_ids: z.array(z.string()).optional(),
+});
+export type AudioContext = z.infer<typeof audioContextSchema>;
+export const clientRenderSchema=z.object({request_id:z.string().min(1).max(100),context:audioContextSchema,name:z.string().min(1).max(80),reference_only:z.boolean().optional(),sound:sound.optional()});
+export type ClientRender=z.infer<typeof clientRenderSchema>;
+export const audioCapabilitySchema = z.object({
+  id: z.string(), name: z.string(), provider: z.enum(['elevenlabs', 'local']),
+  category: z.enum(['music', 'speech', 'sound', 'singing', 'transcribe', 'separate', 'voice_conversion', 'isolate', 'recognize', 'align']),
+  ready: z.boolean(), reason: z.string().optional(),
+  voices: z.array(z.string()).default([]),
+  voice_names: z.record(z.string(),z.string()).optional(),
+  format: z.enum(['mp3', 'pcm', 'wav']).default('mp3'),
+  sample_rate: z.number().optional(), channels: z.number().optional(),
+  loop: z.boolean().default(false),
+  min_seconds: z.number(), max_seconds: z.number(), reference_audio: z.boolean().default(false),
+});
+export type AudioCapability = z.infer<typeof audioCapabilitySchema>;
+export const producerTargetSchema = z.object({
+  track_id: z.string().optional(), clip_id: z.string().optional(),
+  source_id: z.string().optional(), note_ids: z.array(z.string()).optional(),
+  start_beat: z.number().nonnegative().optional(),
+});
+export type ProducerTarget = z.infer<typeof producerTargetSchema>;

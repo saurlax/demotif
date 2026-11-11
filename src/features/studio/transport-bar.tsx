@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Pause, Play, Square, Loader2, ChevronDown } from 'lucide-react'
+import { Pause, Play, Square, Loader2, ChevronDown, Metronome } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useStudioStore } from '@/stores/studio'
 import { Input } from '@/components/ui/input'
@@ -11,13 +11,20 @@ export function TransportBar({
   preparing,
   onTempo,
   onTimeSignature,
+  onMetronome,
+  onStop,
+  recording,
 }: {
   project: Project
   preparing: boolean
   onTempo: (n: number) => void
   onTimeSignature: (signature: string) => void
+  onMetronome: () => void
+  onStop: () => void
+  recording:{active:boolean;busy:boolean}
 }) {
   const playing = useStudioStore((s) => s.playing),
+    metronome = useStudioStore((s) => s.metronome),
     position = useStudioStore((s) => s.positionBeats)
   const centiseconds = Math.floor(position * 60 / project.document.tempo * 100)
   const elapsed = `${String(Math.floor(centiseconds / 6000)).padStart(2, '0')}:${String(Math.floor(centiseconds / 100) % 60).padStart(2, '0')}.${String(centiseconds % 100).padStart(2, '0')}`
@@ -29,6 +36,7 @@ export function TransportBar({
         variant="secondary"
         size="icon-sm"
         aria-label={playing ? 'Pause' : 'Play'}
+        disabled={recording.busy}
         onClick={() => useStudioStore.getState().togglePlayback()}
       >
         {preparing ? (
@@ -43,14 +51,18 @@ export function TransportBar({
         variant="ghost"
         size="icon-sm"
         aria-label="Stop"
-        onClick={() => useStudioStore.getState().stop()}
+        onClick={onStop}
       >
         <Square />
       </Button>
+      <Button variant="ghost" size="icon-sm" aria-label="Metronome" title="Metronome" aria-pressed={metronome}
+        disabled={recording.active}
+        className={metronome?'bg-playback/10 text-playback hover:bg-playback/15 hover:text-playback':undefined}
+        onClick={onMetronome}><Metronome /></Button>
       <span aria-label="Playback time" className="transport-position mx-1">
         <SegmentDisplay value={elapsed} />
       </span>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className={`flex shrink-0 items-center gap-1 ${recording.active?'pointer-events-none opacity-50':''}`} inert={recording.active}>
         <TempoControl value={project.document.tempo} onChange={onTempo} />
         <DropdownMenu>
           <DropdownMenuTrigger aria-label={`Edit time signature, ${project.document.time_signature}`}

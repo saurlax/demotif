@@ -1,14 +1,20 @@
+import {completeBrowserRender} from './producer-render';
+import {completeStudioControl} from './producer-control';
+import {continueRecordedProducer} from './producer';
 import { sha256Text } from "./compatibility";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { runtime } from "./db";
 import { config } from "./config";
+import { directSession, reserveUpload, finishUpload } from './direct-transfers';
+import { proxyAPI } from './upstream';
 import { ApiError, conflict, invalid, missing } from "./errors";
 import {
   documentSchema,
   sourceSchema,
   tempoSchema,
   timeSignature,
+  audioContextSchema,
 } from "@/shared/schema";
 import {
   applyCommands,
@@ -21,7 +27,9 @@ import {
   undo,
   type AssetRow,
 } from "./projects";
-import { boundedBody, fileResponse, safePath, storeAsset } from "./media";
+import { safePath, storeAsset, boundedBody } from "./media";
+import {transcribeVoice,speakReply} from './producer-voice';
+import {realtimeCapabilities} from './producer-realtime-session';
 import { listExamples, loadExample } from "./examples";
 import { vocals, voices } from './vocals/jobs';
 import {
@@ -31,6 +39,7 @@ import {
   producerReady,
   requireRun,
   startProducer,
+  commandTargets,
 } from "./producer";
 import {
   analysisReady,
@@ -39,6 +48,8 @@ import {
   publicJob,
   startAudio,
   type AudioRow,
+  audioCapabilities, audioProposal, acceptAudio,
+  registerRenderedAudio,
 } from "./audio-jobs";
 interface Preset {
   id: string;
@@ -55,6 +66,7 @@ const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 export async function handle(request: Request): Promise<Response> {
   try {
+    if (config.upstream) return await proxyAPI(request, config.upstream);
     const url = new URL(request.url),
       path = url.pathname
         .replace(/^\/api\/?/, "")
@@ -69,11 +81,12 @@ export async function handle(request: Request): Promise<Response> {
       return json({ status: "ok", environment: config.environment });
     if (path[0] === 'vocal-voices' && path.length === 1 && method === 'GET')
       return json({ voices: voices() });
+    if(path[0]==='audio-models'&&path.length===1&&method==='GET')return json({models:await audioCapabilities()});
     if (path[0] === "capabilities" && path.length === 1 && method === "GET")
       return json({
         producer: producerReady(),
         audio_generation: audioReady(),
-        vocal_separation: audioReady(),
+        vocal_separation: false,
         transcription: analysisReady(),
       });
     if (path[0] === "sounds") {
@@ -97,11 +110,10 @@ export async function handle(request: Request): Promise<Response> {
       ) {
         const p = catalog.entries.find((p) => p.id === path[1]);
         if (!p?.file) missing("Audio preview not found");
-        return fileResponse(
-          request,
-          safePath(config.resources, p.file),
-          "audio/wav",
-        );
+        const catalogRow = db.get<{manifest:string}>('SELECT manifest FROM storage_catalogs WHERE id=?','sounds');
+        const binary = catalogRow && (JSON.parse(catalogRow.manifest).files as {path:string;ref:{key:string}}[]).find(f => f.path === p.file);
+        if (!binary) missing('Preview is not published in object storage');
+        return json(await directSession(binary.ref.key));
       }
     }
     if (path[0] !== "projects") missing();
@@ -137,7 +149,7 @@ export async function handle(request: Request): Promise<Response> {
     if (path[1] === "examples") {
       if (path.length === 2 && method === "GET") return json(listExamples());
       if (path.length === 3 && method === "POST")
-        return json(loadExample(db, path[2]), 201);
+        return json(await loadExample(db, path[2]), 201);
       missing();
     }
     if (path[1] === "import" && path.length === 2 && method === "POST") {
@@ -165,6 +177,14 @@ export async function handle(request: Request): Promise<Response> {
     const projectId = path[1];
     if (!projectId) missing();
     const project = getProject(db, projectId);
+    if (path[2] === 'exports' && path.length === 3) {
+      if (method === 'GET') return json(db.all('SELECT * FROM audio_exports WHERE project_id=? ORDER BY created_at DESC', projectId));
+      if (method === 'POST') throw new ApiError(410,'direct_transfer_required','Use a direct upload reservation for exports.');
+    }
+    if (path[2] === 'uploads') {
+      if (path.length === 3 && method === 'POST') return json(await reserveUpload(db,projectId,await body()),201);
+      if (path.length === 5 && path[4] === 'complete' && method === 'POST') return json(await finishUpload(db,projectId,path[3]),201);
+    }
     if (path[2] === 'vocal-renders') {
       const queue = vocals(db);
       if (path.length === 3 && method === 'POST') return json(queue.ensure(projectId, await body()), 202);
@@ -224,46 +244,7 @@ export async function handle(request: Request): Promise<Response> {
             projectId,
           ),
         );
-      if (path.length === 3 && method === "POST") {
-        const bytes = await boundedBody(request, config.maxUpload + 65536),
-          form = await new Request(request.url, {
-            method: "POST",
-            headers: {
-              "Content-Type": request.headers.get("content-type") ?? "",
-            },
-            body: bytes,
-          }).formData(),
-          file = form.get("file"),
-          kind = form.get("kind") ?? "recording";
-        if (!(file instanceof File)) invalid("Choose a file");
-        if (
-          !["recording", "vocal", "instrument", "sample", "reference"].includes(
-            String(kind),
-          )
-        )
-          invalid("Invalid asset kind");
-        if (!/^(audio|video)\//.test(file.type))
-          throw new ApiError(
-            415,
-            "unsupported_media",
-            "Only audio or video uploads are supported",
-          );
-        if (file.size > config.maxUpload)
-          throw new ApiError(
-            413,
-            "file_too_large",
-            "Upload exceeds the size limit",
-          );
-        const asset = storeAsset(
-          db,
-          projectId,
-          file.name,
-          file.type,
-          new Uint8Array(await file.arrayBuffer()),
-          String(kind),
-        );
-        return json({ ...asset, storage_key: undefined }, 201);
-      }
+      if (path.length === 3 && method === 'POST') throw new ApiError(410,'direct_transfer_required','Use a direct upload reservation.');
       if (
         path[4] === "content" &&
         path.length === 5 &&
@@ -275,12 +256,8 @@ export async function handle(request: Request): Promise<Response> {
             path[3],
             projectId,
           ) ?? missing("Asset not found");
-        return fileResponse(
-          request,
-          safePath(config.media, asset.storage_key),
-          asset.content_type,
-          asset.filename,
-        );
+        if (!asset.storage_key.startsWith('s3:')) throw new ApiError(503,'asset_not_migrated','Audio is not published in object storage');
+        return json(await directSession(asset.storage_key.slice(3)));
       }
     }
     if (path[2] === "sounds" && path.length === 3 && method === "POST") {
@@ -303,7 +280,7 @@ export async function handle(request: Request): Promise<Response> {
         drum_kit: preset.drum_kit ?? "studio",
       });
       if (preset.file) {
-        const asset = storeAsset(
+        const asset = await storeAsset(
           db,
           projectId,
           preset.file,
@@ -324,6 +301,10 @@ export async function handle(request: Request): Promise<Response> {
         }
       }
       return json(source);
+    }
+    if(path[2]==='audio-renders'&&path.length===3&&method==='POST') {
+      const input=z.object({asset_id:z.string(),name:z.string().min(1).max(80),context:audioContextSchema}).parse(await body());
+      return json(publicJob(await registerRenderedAudio(db,projectId,input,request.signal)));
     }
     if (path[2] === "audio-jobs") {
       if (path.length === 3 && method === "GET")
@@ -347,9 +328,16 @@ export async function handle(request: Request): Promise<Response> {
           path[3],
           projectId,
         ) ?? missing("Audio job not found");
+      if(path[4]==='review'||path[4]==='accept') {
+        const input=z.object({context:audioContextSchema,request_id:z.string().min(1).max(100).optional()}).parse(await body());
+        if(path[4]==='review')return json({commands:audioProposal(db,projectId,job,input.context)});
+        if(!input.request_id)invalid('Request identity is required');
+        return json(acceptAudio(db,projectId,job,input.context,input.request_id));
+      }
       if (method === "POST") {
         if (
           path[4] === "resume" &&
+          JSON.parse(job.request).mode === 'transcribe' &&
           job.upstream_id &&
           job.status !== "complete"
         ) {
@@ -381,12 +369,27 @@ export async function handle(request: Request): Promise<Response> {
       }
     }
     if (path[2] === "producer") {
+      if(path[3]==='voice'&&path[4]==='capabilities'&&path.length===5&&method==='GET')return json(realtimeCapabilities());
+      if(path[3]==='voice'&&path[4]==='transcriptions'&&path.length===5&&method==='POST'){
+        if(!project.is_draft)invalid('Open an editing draft before using voice');
+        return json({text:await transcribeVoice(await boundedBody(request),request.signal)});
+      }
       if (path.length === 3 && method === "GET")
         return json(producerHistory(db, projectId));
       if (path[3] === "runs" && path.length === 4 && method === "POST")
         return json(await startProducer(db, projectId, await body()), 202);
       if (path[3] !== "runs" || path.length !== 6) missing();
       const run = requireRun(db, projectId, path[4]);
+      if(path[5]==='recording'&&method==='POST')return json(await continueRecordedProducer(db,projectId,run.id,await body()),202);
+      if(path[5]==='control'&&method==='POST')return json(completeStudioControl(db,projectId,run.id,await body()));
+      if(path[5]==='render'&&method==='POST')return json(await completeBrowserRender(db,projectId,run.id,await body(),request.signal));
+      if(path[5]==='speech'&&method==='POST'){
+        if(run.status!=='complete')throw new ApiError(409,'speech_unavailable','Wait for the Producer reply before speaking.');
+        const events=db.all<{payload:string}>('SELECT payload FROM producer_events WHERE run_id=? ORDER BY seq',run.id).map(e=>JSON.parse(e.payload));
+        const reply=events.findLast(e=>e.type==='reply')?.text??events.filter(e=>e.type==='text').map(e=>e.delta??'').join('');
+        const bytes=await speakReply(reply,request.signal);
+        return new Response(new Uint8Array(bytes),{headers:{'Content-Type':'audio/mpeg','Content-Length':String(bytes.length),'Cache-Control':'no-store'}});
+      }
       if (path[5] === "events" && method === "GET") {
         const after = Number(
           url.searchParams.get("after") ??
@@ -420,6 +423,7 @@ export async function handle(request: Request): Promise<Response> {
             "proposal_unavailable",
             "No completed edit proposal",
           );
+        for(const target of commandTargets(z.array((await import('@/shared/schema')).commandSchema).parse(commands)))append(db,run.id,{type:'activity',status:'applying',target,text:'Applying edits'});
         const result = applyCommands(
           db,
           projectId,
@@ -431,6 +435,7 @@ export async function handle(request: Request): Promise<Response> {
           true,
         );
         db.run("UPDATE producer_runs SET applied=1 WHERE id=?", run.id);
+        for(const target of commandTargets(z.array((await import('@/shared/schema')).commandSchema).parse(commands)))append(db,run.id,{type:'activity',status:'applied',target,text:'Edits applied'});
         return json(result);
       }
     }

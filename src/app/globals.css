@@ -200,6 +200,10 @@
   to { opacity: 1; transform: translateY(0); }
 }
 ::selection { background: color-mix(in oklab, var(--primary) 30%, transparent); }
+
+.producer-composer { transition: left 280ms cubic-bezier(.2,.85,.25,1.08), top 280ms cubic-bezier(.2,.85,.25,1.08); box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 10%, transparent); }
+.producer-cursor { transition: left 350ms cubic-bezier(.2,.85,.25,1.1), top 350ms cubic-bezier(.2,.85,.25,1.1); }
+@media (prefers-reduced-motion: reduce) { .producer-composer, .producer-cursor { transition: none; } }
 @media (prefers-reduced-motion: reduce) {
   .project-card { animation: none; transition: none; }
   .project-card:hover { transform: none; }

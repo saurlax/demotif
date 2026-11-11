@@ -180,6 +180,16 @@ export function applyEdit(document: Document, command: Command): string {
     case "project.set_time_signature":
       document.time_signature = command.time_signature;
       return `Set time signature to ${command.time_signature}`;
+    case "project.set_key":
+      document.key = command.key;
+      return "Set project key";
+    case "project.add_abc_score":
+      (document.abc_imports ??= []).push(structuredClone(command.imported));
+      if (command.material) {
+        document.tracks.push(...structuredClone(command.material.tracks));
+        document.sources.push(...structuredClone(command.material.sources));
+      }
+      return `Import ABC score “${command.imported.name}”`;
     case "track.add":
       document.tracks.push(
         trackSchema.parse({ ...command, id: command.id ?? newId() }),

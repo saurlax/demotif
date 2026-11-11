@@ -10,13 +10,14 @@ export class NativeWorker {
   private pending = new Map<string, Pending>()
   private sequence = 0
   private profileFingerprint?: string
+  private engine?: string
   private removeShutdownHandlers?: () => void
   constructor(privateOptions?: { executable: string; entry: string }) { this.options = privateOptions }
   private options?: { executable: string; entry: string }
-  private start() {
+  private start(engine: string) {
     if (this.child) return this.child
-    const child = spawn(this.options?.executable ?? config.singingPython,
-      [this.options?.entry ?? resolve(repositoryRoot, 'workers/singing/worker.py')],
+    const child = spawn(this.options?.executable ?? (engine === 'nnsvs' ? config.nnsvsPython : config.singingPython),
+      [this.options?.entry ?? resolve(repositoryRoot, engine === 'nnsvs' ? 'workers/singing/nnsvs_worker.py' : 'workers/singing/worker.py')],
       { cwd: repositoryRoot, stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child
     const shutdown = () => this.stop(new Error('Application is stopping'))
@@ -63,11 +64,13 @@ export class NativeWorker {
   run<T>(input: Record<string, unknown>, signal?: AbortSignal, progress?: (stage: string) => void): Promise<T> {
     signal?.throwIfAborted()
     const signature = typeof input.profile_fingerprint === 'string' ? input.profile_fingerprint : undefined
-    if (signature && signature !== this.profileFingerprint) {
+    const engine = input.engine === 'nnsvs' ? 'nnsvs' : 'diffsinger'
+    if (engine !== this.engine || (signature && signature !== this.profileFingerprint)) {
       this.stop()
       this.profileFingerprint = signature
+      this.engine = engine
     }
-    const child = this.start()
+    const child = this.start(engine)
     const id = String(++this.sequence)
     return new Promise<T>((resolveResult, reject) => {
       const abort = () => this.stop(new DOMException('Singing render cancelled', 'AbortError'))

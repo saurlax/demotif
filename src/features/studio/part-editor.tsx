@@ -1,5 +1,6 @@
+import { randomUUID } from '@/shared/id'
 import { editorPlaybackClip } from './editor-playback'
-import { NOTE_GRID, snapNoteDuration, formatNoteDuration, removeEditorNote } from './note-editing'
+import { NOTE_GRID, snapNoteDuration, formatNoteDuration, removeEditorNote, transformNotes, marqueeNotes, removeSelectedNotes } from './note-editing'
 import { resolveVocalSource } from '@/audio/vocal-resolution'
 import { hasDraftChanges } from './save-status'
 import { VocalRenderControls, VocalNoteFields, VocalLyrics, VocalExpression, VocalVoiceSettings } from './vocal-controls'
@@ -44,6 +45,7 @@ export function PartEditor({
   onClose,
   onError,
   onRecordReference,
+  onSelectionChange,
 }: {
   interactive?: boolean
   project: Project
@@ -54,11 +56,17 @@ export function PartEditor({
   onClose: () => void
   onError: (message: string) => void
   onRecordReference?: () => void
+  onSelectionChange?: (noteIds:string[]) => void
 }) {
   const [selected, setSelected] = useState<string | null>(null),
     [playing, setPlaying] = useState(false)
   const [peaks, setPeaks] = useState<number[]>([]),
-    [draftNote, setDraftNote] = useState<Note | null>(null)
+    [draftNotes, setDraftNotes] = useState<Note[] | null>(null)
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [marquee, setMarquee] = useState<{left:number;top:number;width:number;height:number}|null>(null)
+  const producerSelection=JSON.stringify((selection.size?[...selection]:source.kind==='drums'&&selected?[selected]:[]).filter(id=>source.notes.some(n=>n.id===id)).sort())
+  useEffect(()=>{if(!marquee&&!draftNotes)onSelectionChange?.(JSON.parse(producerSelection) as string[])},[producerSelection,marquee,draftNotes,onSelectionChange])
+  useEffect(() => { cancelGesture.current?.() }, [source.id, project.version])
   const [loopStage, setLoopStage] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [noteEditorOpen, setNoteEditorOpen] = useState(false)
@@ -156,7 +164,7 @@ export function PartEditor({
       vibrato: Object.fromEntries(Object.entries(source.vocal.vibrato).filter(([id]) => ids.has(id))),
     } })
   }
-  const audition = (pitch: number) => {
+  const audition = (pitch: number, sample=note?.sample) => {
     if (source.kind === 'vocal') return
     void engine
       .audition(renderSource(source, project.id, project.document.tempo), {
@@ -165,6 +173,7 @@ export function PartEditor({
         start: 0,
         duration: 0.2,
         velocity: 0.8,
+        ...(sample?{sample}:{}),
       })
       .catch((e) => onError(String(e)))
   }
@@ -318,8 +327,9 @@ export function PartEditor({
       (n) => n.pitch === pitch && Math.abs(n.start - start) < 1e-5,
     )
     if (existing && source.kind === 'drums') return
+    const sample=source.sampler?(note?.sample??source.notes.find(n=>n.sample)?.sample):undefined
     const n = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       pitch,
       start,
       duration: Math.min(
@@ -327,9 +337,11 @@ export function PartEditor({
         source.duration - start,
       ),
       velocity: 0.8,
+      ...(sample?{sample:{...sample}}:{}),
     }
     setSelected(n.id)
-    audition(pitch)
+    setSelection(new Set([n.id]))
+    audition(pitch,sample)
     void notes([...source.notes, n])
   }
   function deleteNote(id: string) {
@@ -347,77 +359,44 @@ export function PartEditor({
     if (target) deleteNote(target.id)
   }
   function drag(e: React.PointerEvent, n: Note) {
-    if (e.button !== 0) return
-    e.preventDefault()
-    e.stopPropagation()
-    window.getSelection()?.removeAllRanges()
-    cancelGesture.current?.()
-    setSelected(n.id)
-    const anchor = e.currentTarget as HTMLElement
-    setNoteEditorOpen(false)
-    if (!unlocked) { openNoteEditor(anchor); return }
-    const x = e.clientX,
-      y = e.clientY,
-      resize = e.clientX - e.currentTarget.getBoundingClientRect().left > e.currentTarget.clientWidth - 7
-    let latest = n,
-      cancelled = false,
-      finished = false,
-      moved = false
-    const move = (ev: PointerEvent) => {
-      if (!moved && Math.hypot(ev.clientX - x, ev.clientY - y) < 3) return
-      moved = true
-      const delta = Math.round((ev.clientX - x) / scale / step) * step
-      latest = resize
-        ? {
-            ...n,
-            duration: snapNoteDuration(n.duration + delta, source.duration - n.start),
-          }
-        : {
-            ...n,
-            start: Math.max(
-              0,
-              Math.min(source.duration - n.duration, n.start + delta),
-            ),
-            pitch: Math.max(
-              0,
-              Math.min(127, n.pitch + Math.round((y - ev.clientY) / rowHeight)),
-            ),
-          }
-      setDraftNote(latest)
+    if(e.button!==0)return
+    e.preventDefault();e.stopPropagation();cancelGesture.current?.()
+    const anchor=e.currentTarget as HTMLElement
+    if(e.shiftKey){setSelection(old=>{const next=new Set(old);if(next.has(n.id))next.delete(n.id);else next.add(n.id);return next});setSelected(n.id);return}
+    const ids=selection.has(n.id)?new Set(selection):new Set([n.id])
+    setSelection(ids);setSelected(n.id);setNoteEditorOpen(false)
+    if(!unlocked){openNoteEditor(anchor);return}
+    canvasScroll.current?.focus({preventScroll:true})
+    const x=e.clientX,y=e.clientY,resize=x-anchor.getBoundingClientRect().left>anchor.clientWidth-7
+    const original=source.notes, scrollX=canvasScroll.current?.scrollLeft??0, scrollY=canvasScroll.current?.scrollTop??0
+    let latest=original,moved=false,finished=false,lastX=x,lastY=y,frame=0
+    const preview=()=>{
+      const viewport=canvasScroll.current
+      if(viewport){const r=viewport.getBoundingClientRect();if(lastX>r.right-24)viewport.scrollLeft+=6;else if(lastX<r.left+96)viewport.scrollLeft-=6;if(!resize){if(lastY>r.bottom-24)viewport.scrollTop+=6;else if(lastY<r.top+30)viewport.scrollTop-=6}}
+      const dx=lastX-x+(viewport?.scrollLeft??0)-scrollX,dy=y-lastY-((viewport?.scrollTop??0)-scrollY)
+      latest=transformNotes(original,ids,source.duration,resize?{duration:dx/scale}:{time:dx/scale,pitch:dy/rowHeight})
+      setDraftNotes(latest);frame=requestAnimationFrame(preview)
     }
-    const key = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') {
-        cancelled = true
-        finish()
-      }
-    }
-    const cancel = () => {
-      cancelled = true
-      finish()
-    }
-    const finish = () => {
-      if (finished) return
-      finished = true
-      cancelGesture.current = null
-      window.removeEventListener('pointercancel', cancel)
-      window.removeEventListener('blur', cancel)
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', finish)
-      window.removeEventListener('keydown', key)
-      setDraftNote(null)
-      if (!cancelled && !moved) openNoteEditor(anchor)
-      if (!cancelled && latest !== n)
-        void notes(
-          source.notes.map((item) => (item.id === n.id ? latest : item)),
-        )
-    }
-    cancelGesture.current = cancel
-    window.addEventListener('pointercancel', cancel, { once: true })
-    window.addEventListener('blur', cancel, { once: true })
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', finish, { once: true })
-    window.addEventListener('keydown', key)
-    audition(n.pitch)
+    const move=(ev:PointerEvent)=>{if(ev.pointerId!==e.pointerId)return;lastX=ev.clientX;lastY=ev.clientY;if(!moved&&Math.hypot(lastX-x,lastY-y)<3)return;if(!moved){moved=true;frame=requestAnimationFrame(preview)}}
+    const finish=(cancelled=false)=>{if(finished)return;finished=true;cancelAnimationFrame(frame);cancelGesture.current=null;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',cancel);window.removeEventListener('blur',cancel);window.removeEventListener('keydown',key);anchor.removeEventListener('lostpointercapture',cancel);setDraftNotes(null);engine.stopAudition();if(!cancelled&&!moved)openNoteEditor(anchor);else if(!cancelled&&JSON.stringify(latest)!==JSON.stringify(original))void notes(latest)}
+    const up=(ev:PointerEvent)=>{if(ev.pointerId===e.pointerId)finish()}
+    const cancel=()=>finish(true)
+    const key=(ev:KeyboardEvent)=>{if(ev.key==='Escape'){ev.preventDefault();ev.stopImmediatePropagation();cancel()}}
+    cancelGesture.current=cancel
+    window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',cancel);window.addEventListener('blur',cancel);window.addEventListener('keydown',key);anchor.addEventListener('lostpointercapture',cancel)
+    audition(n.pitch,n.sample)
+  }
+  function selectArea(e:React.PointerEvent<HTMLDivElement>) {
+    if(e.button!==0||e.target!==e.currentTarget)return
+    e.preventDefault();cancelGesture.current?.();setNoteEditorOpen(false);canvasScroll.current?.focus({preventScroll:true})
+    const element=e.currentTarget,origin=element.getBoundingClientRect(),x=e.clientX-origin.left,y=e.clientY-origin.top
+    const base=e.shiftKey?new Set(selection):new Set<string>()
+    let moved=false,finished=false,lastX=e.clientX,lastY=e.clientY,frame=0
+    const preview=()=>{const v=canvasScroll.current;if(v){const r=v.getBoundingClientRect();if(lastX>r.right-24)v.scrollLeft+=6;else if(lastX<r.left+96)v.scrollLeft-=6;if(lastY>r.bottom-24)v.scrollTop+=6;else if(lastY<r.top+30)v.scrollTop-=6}const r=element.getBoundingClientRect(),xx=lastX-r.left,yy=lastY-r.top;const left=Math.min(x,xx),top=Math.min(y,yy),width=Math.abs(x-xx),height=Math.abs(y-yy);setMarquee({left,top,width,height});const hits=marqueeNotes(source.notes,{start:left/scale,end:(left+width)/scale,low:high-Math.floor((top+height-rulerHeight)/rowHeight),high:high-Math.floor((top-rulerHeight)/rowHeight)});setSelection(new Set([...base,...hits]));frame=requestAnimationFrame(preview)}
+    const move=(ev:PointerEvent)=>{if(ev.pointerId!==e.pointerId)return;lastX=ev.clientX;lastY=ev.clientY;if(!moved&&Math.hypot(lastX-e.clientX,lastY-e.clientY)<3)return;if(!moved){moved=true;frame=requestAnimationFrame(preview)}}
+    const finish=(cancelled=false)=>{if(finished)return;finished=true;cancelAnimationFrame(frame);cancelGesture.current=null;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',cancel);window.removeEventListener('blur',cancel);window.removeEventListener('keydown',key);setMarquee(null);if(cancelled)setSelection(selection);else if(!moved){const p=pitches[Math.floor((y-rulerHeight)/(source.kind==='drums'?32:rowHeight))];if(p!=null)add(p,x/scale)}}
+    const up=(ev:PointerEvent)=>{if(ev.pointerId===e.pointerId)finish()};const cancel=()=>finish(true);const key=(ev:KeyboardEvent)=>{if(ev.key==='Escape'){ev.preventDefault();ev.stopImmediatePropagation();cancel()}}
+    cancelGesture.current=cancel;window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',cancel);window.addEventListener('blur',cancel);window.addEventListener('keydown',key)
   }
   return (
     <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -432,42 +411,12 @@ export function PartEditor({
           e.target instanceof HTMLSelectElement
         )
           return
-        if (e.key === 'Escape') onClose()
-        if (note && unlocked && e.key.startsWith('Arrow')) {
-          e.preventDefault()
-          const delta = e.shiftKey ? 1 : 0.25
-          const start =
-            e.key === 'ArrowLeft'
-              ? Math.max(0, note.start - delta)
-              : e.key === 'ArrowRight'
-                ? Math.min(source.duration - note.duration, note.start + delta)
-                : note.start
-          const pitch = Math.max(
-            0,
-            Math.min(
-              127,
-              note.pitch +
-                (e.key === 'ArrowUp'
-                  ? e.shiftKey
-                    ? 12
-                    : 1
-                  : e.key === 'ArrowDown'
-                    ? e.shiftKey
-                      ? -12
-                      : -1
-                    : 0),
-            ),
-          )
-          void notes(
-            source.notes.map((n) =>
-              n.id === note.id ? { ...n, start, pitch } : n,
-            ),
-          )
-        }
-        if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-          e.preventDefault()
-          deleteNote(selected)
-        }
+        if(noteEditorOpen||settingsOpen||e.target instanceof HTMLTextAreaElement||(e.target as HTMLElement).closest('[role="dialog"]'))return
+        if(e.key==='Escape'){if(cancelGesture.current){cancelGesture.current();e.stopPropagation()}else onClose();return}
+        if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();setSelection(new Set(source.notes.map(n=>n.id)));return}
+        const ids=selection.size?selection:new Set(selected?[selected]:[])
+        if(unlocked&&ids.size&&e.key.startsWith('Arrow')){e.preventDefault();e.stopPropagation();void notes(transformNotes(source.notes,ids,source.duration,{time:e.key==='ArrowLeft'?-(e.shiftKey?1:step):e.key==='ArrowRight'?(e.shiftKey?1:step):0,pitch:e.key==='ArrowUp'?(e.shiftKey?12:1):e.key==='ArrowDown'?-(e.shiftKey?12:1):0}))}
+        if(unlocked&&ids.size&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();e.stopPropagation();void update(removeSelectedNotes(source,ids));setSelection(new Set());setSelected(null)}
       }}
     >
       <div className="studio-toolbar flex h-11 shrink-0 items-center gap-2 overflow-x-auto border-b px-3">
@@ -651,25 +600,14 @@ export function PartEditor({
               </div>
               <div
                 className="note-grid relative flex-1 pt-7"
-                onPointerDown={(e) => {
-                  if (e.button !== 0 || e.target !== e.currentTarget) return
-                  e.preventDefault()
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const p =
-                    pitches[
-                      Math.floor(
-                        (e.clientY - rect.top - rulerHeight) /
-                          (source.kind === 'drums' ? 32 : rowHeight),
-                      )
-                    ]
-                  if (p != null) add(p, (e.clientX - rect.left) / scale)
-                }}
+                onPointerDown={selectArea}
                 style={{
                   '--step-width': `${scale * step}px`,
                   '--beat-width': `${scale}px`,
                   '--bar-width': `${scale * bar}px`,
                 } as CSSProperties}
               >
+                {marquee && <div aria-hidden="true" className="pointer-events-none absolute z-40 border border-primary bg-primary/15" style={marquee} />}
                 {pitches.map((pitch, index) => (
                   <div key={pitch} aria-hidden="true"
                     className="piano-row-band pointer-events-none absolute inset-x-0 border-b"
@@ -735,14 +673,16 @@ export function PartEditor({
                     )
                   : source.notes.map((original) => {
                       const n =
-                        draftNote?.id === original.id ? draftNote : original
+                        draftNotes?.find(n=>n.id===original.id) ?? original
                       return (
                         <button
                           key={n.id}
+                          data-producer-note={n.id}
+                          data-producer-source={source.id}
                           aria-label={`${pitchName(n.pitch)}, beat ${n.start + 1}`}
-                          aria-pressed={selected === n.id}
+                          aria-pressed={selection.has(n.id)}
                           onDragStart={(e) => e.preventDefault()}
-                          className={`piano-note absolute z-10 touch-none rounded-sm border ${selected === n.id ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
+                          className={`piano-note absolute z-10 touch-none rounded-sm border ${selection.has(n.id) ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
                           style={{
                             left: n.start * scale,
                             top: rulerHeight + (high - n.pitch) * rowHeight + 1,
@@ -1198,6 +1138,11 @@ export function PartEditor({
             max={snapNoteDuration(source.duration - note.start, source.duration - note.start)} step={step} format={formatNoteDuration}
             disabled={!unlocked || parameterSaving}
             onChange={(duration) => notes(source.notes.map((n) => n.id === note.id ? { ...n, duration: snapNoteDuration(duration, source.duration - note.start) } : n))} />
+          {note.sample&&<div className="grid gap-3 sm:grid-cols-2">
+            <NumberField label="Sample start · s" value={note.sample.offset} min={0} step={0.001} disabled={!unlocked||parameterSaving} onChange={offset=>notes(source.notes.map(n=>n.id===note.id?{...n,sample:{...note.sample!,offset}}:n))}/>
+            <NumberField label="Sample length · s" value={note.sample.duration} min={0.001} step={0.001} disabled={!unlocked||parameterSaving} onChange={duration=>notes(source.notes.map(n=>n.id===note.id?{...n,sample:{...note.sample!,duration}}:n))}/>
+            <NumberField label="Sample root note" value={note.sample.rootNote} min={0} max={127} disabled={!unlocked||parameterSaving} onChange={rootNote=>notes(source.notes.map(n=>n.id===note.id?{...n,sample:{...note.sample!,rootNote}}:n))}/>
+          </div>}
           <Button size="sm" variant="ghost" className="justify-start" disabled={!unlocked || parameterSaving}
             onClick={() => deleteNote(note.id)}>
             <Trash2 />Delete note

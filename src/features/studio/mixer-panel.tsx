@@ -1,3 +1,4 @@
+import { randomUUID } from '@/shared/id'
 import { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -102,7 +103,7 @@ export function MixerPanel({
           size="sm"
           onClick={() => {
             const bus = {
-              id: crypto.randomUUID(),
+              id: randomUUID(),
               name: `Bus ${mixer.buses.length + 1}`,
               gain: 1,
               effects: {},

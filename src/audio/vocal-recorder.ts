@@ -1,3 +1,4 @@
+import { randomUUID } from '@/shared/id'
 import { encodeWav } from './pcm'
 import { recordingBarSeconds } from '@/features/studio/vocal-recording-cues'
 
@@ -30,6 +31,8 @@ export function assembleCapture(blocks: { frame: number; pcm: Float32Array }[], 
 export class VocalRecorder {
   private generation = 0
   private context?: AudioContext
+  private ownsContext=true
+  private contextChanged?:()=>void
   private stream?: MediaStream
   private node?: AudioWorkletNode
   private input?: MediaStreamAudioSourceNode
@@ -44,7 +47,7 @@ export class VocalRecorder {
   private events: RecorderEvents
   constructor(events: RecorderEvents) { this.events = events }
 
-  async prepare(deviceId?: string) {
+  async prepare(deviceId?: string,sharedContext?:AudioContext) {
     this.dispose()
     const generation = this.generation
     this.events.phase('preparing')
@@ -56,7 +59,8 @@ export class VocalRecorder {
       } })
       if (generation !== this.generation) { stream.getTracks().forEach((t) => t.stop()); return }
       this.stream = stream
-      const context = new AudioContext({ latencyHint: 'interactive' })
+      const context = sharedContext??new AudioContext({ latencyHint: 'interactive' })
+      this.ownsContext=!sharedContext
       this.context = context
       await context.resume()
       await context.audioWorklet.addModule('/audio/recording-worklet.js')
@@ -74,23 +78,24 @@ export class VocalRecorder {
       }
       node.onprocessorerror = () => { this.events.error(new Error('Microphone processing stopped. Your previous take is retained.')); this.stop(true) }
       stream.getAudioTracks().forEach((track) => { track.onended = () => { this.events.error(new Error('Microphone disconnected.')); this.stop(true) } })
-      context.onstatechange = () => { if (context.state === 'suspended' && this.armed) this.stop(true) }
+      this.contextChanged=() => { if (context.state === 'suspended' && this.armed) this.stop(true) }
+      if(this.ownsContext)context.onstatechange=this.contextChanged
+      else context.addEventListener?.('statechange',this.contextChanged)
       this.events.phase('ready')
+      return true
     } catch (error) {
       if (generation !== this.generation) return
       this.dispose()
       this.events.phase('idle')
       this.events.error(error instanceof Error ? error : new Error(String(error)))
+      return false
     }
   }
   record(tempo: number, meter: string, duration: number, audible: boolean) {
     const ctx = this.context
     if (!ctx || !this.node || ctx.state !== 'running') throw new Error('Enable your microphone before recording.')
     const bar = recordingBarSeconds(tempo, meter)
-    this.blocks = []; this.finished = false; this.interrupted = false; this.armed = true
-    this.startFrame = Math.ceil((ctx.currentTime + .1 + bar) * ctx.sampleRate)
-    this.endFrame = this.startFrame + Math.ceil((duration + .25) * ctx.sampleRate)
-    this.node.port.postMessage({ type: 'arm', start: this.startFrame, end: this.endFrame })
+    this.recordAt(ctx.currentTime+.1+bar,duration+.25)
     if (audible) {
       const [n] = meter.split('/').map(Number)
       for (let i = 0; i < n; i++) {
@@ -102,6 +107,16 @@ export class VocalRecorder {
         oscillator.start(time); oscillator.stop(time + .05); this.clicks.push(oscillator)
       }
     }
+  }
+  recordAt(when:number,duration?:number){
+    const ctx=this.context
+    if(!ctx||!this.node||ctx.state!=='running')throw new Error('Enable your microphone before recording.')
+    if(!Number.isFinite(when)||when<ctx.currentTime)throw new Error('Recording start time is no longer available.')
+    this.blocks=[];this.finished=false;this.interrupted=false;this.armed=true
+    // Preserve an already sample-aligned time despite floating-point round trips.
+    this.startFrame=Math.ceil(when*ctx.sampleRate-1e-7)
+    this.endFrame=duration===undefined?Number.MAX_SAFE_INTEGER:this.startFrame+Math.ceil(duration*ctx.sampleRate)
+    this.node.port.postMessage({type:'arm',start:this.startFrame,end:this.endFrame})
     this.events.phase('count-in')
     const tick = () => {
       if (!this.armed || !this.context) return
@@ -133,7 +148,7 @@ export class VocalRecorder {
     this.dispose()
     this.events.phase('idle'); this.events.level(0)
     if (!pcm.length) return
-    this.events.take({ id: crypto.randomUUID(), pcm, sampleRate: rate, startFrame: start,
+    this.events.take({ id: randomUUID(), pcm, sampleRate: rate, startFrame: start,
       duration: pcm.length / rate, interrupted, blob: encodeWav([pcm], rate) })
   }
   dispose() {
@@ -142,7 +157,11 @@ export class VocalRecorder {
     this.node?.disconnect(); this.node?.port.close(); this.input?.disconnect()
     this.clicks.forEach((osc) => { try { osc.stop() } catch { /* already ended */ } }); this.clicks = []
     this.stream?.getTracks().forEach((t) => { t.onended = null; t.stop() })
-    if (this.context) { this.context.onstatechange = null; void this.context.close().catch(() => {}) }
+    if (this.context) {
+      if(this.ownsContext){this.context.onstatechange=null;void this.context.close().catch(()=>{})}
+      else if(this.contextChanged)this.context.removeEventListener?.('statechange',this.contextChanged)
+    }
+    this.contextChanged=undefined
     this.context = undefined; this.stream = undefined; this.node = undefined; this.input = undefined; this.blocks = []
   }
 }

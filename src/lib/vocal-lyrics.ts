@@ -1,9 +1,12 @@
+import { randomUUID } from '@/shared/id'
 import type { Source } from '@/types/project'
 
 // Check Mandarin syllable shape, not a hard-coded voice dictionary. The installed
 // voice remains authoritative for its pronunciation inventory at synthesis time.
 const pinyin = /^(?:(?:zh|ch|sh|[bpmfdtnlgkhjqxrywzcs])?(?:a|o|e|ai|ei|ao|ou|an|en|ang|eng|ong|er|i|ia|ie|iao|iu|ian|in|iang|ing|iong|u|ua|uo|uai|ui|uan|un|uang|ueng|v|ve|van|vn|ue)|m|n|ng|hm)$/i
 export function vocalSyllableError(lyric: string, pronunciation = '', language = 'zh', _mode?: 'single' | 'multiple'): string | undefined {
+  if (language === 'ja' && pronunciation.trim() && !/^[\p{Script=Hiragana}\p{Script=Katakana}ー\s]+$/u.test(pronunciation.normalize('NFKC')))
+    return 'Enter Japanese pronunciation in hiragana or katakana, such as あおい.'
   if (language !== 'zh' || lyric.trim() === '-' || lyric.trim() === '_') return
   const tokens = tokenizeVocalLyrics(lyric, language)
   if (tokens.some((text) => !/^\p{Script=Han}$/u.test(text) && !pinyin.test(text)))
@@ -86,7 +89,7 @@ export function applyVocalEntry(source: Source, noteId: string, text: string, op
     if (options.split) {
       const original = source.notes.find((n) => n.id === noteId)!
       const duration = original.duration / preview.tokens.length
-      targets = preview.tokens.map((_, i) => ({ ...original, id: i === 0 ? original.id : (options.newId ?? (() => crypto.randomUUID()))(),
+      targets = preview.tokens.map((_, i) => ({ ...original, id: i === 0 ? original.id : (options.newId ?? (() => randomUUID()))(),
         start: original.start + i * duration, duration: i === preview.tokens.length - 1 ? original.start + original.duration - (original.start + i * duration) : duration }))
       notes = [...source.notes.filter((n) => n.id !== noteId), ...targets].sort((a, b) => a.start - b.start)
     }

@@ -14,6 +14,10 @@ def emit(payload: dict[str, Any]) -> None:
 
 
 def main() -> None:
+    # Node sends UTF-8 JSON even when Windows uses a different system locale.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8')
     singer: NativeSinger | None = None
     loaded: tuple[str, str, str] | None = None
     for line in sys.stdin:
@@ -41,7 +45,7 @@ def main() -> None:
                 continue
             if request['action'] not in ('render', 'render_source'):
                 raise ValueError('Unknown worker action')
-            score = json.loads(Path(request['score_path']).read_text())
+            score = json.loads(Path(request['score_path']).read_text(encoding='utf-8'))
             emit({'protocol': 1, 'id': job, 'event': 'progress', 'stage': 'synthesis'})
             assert singer is not None
             if request['action'] == 'render_source':

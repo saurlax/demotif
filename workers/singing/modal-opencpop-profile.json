@@ -1,0 +1,54 @@
+{
+  "id": "opencpop-native-demo",
+  "name": "OpenCpop \u00b7 research demo",
+  "language": "zh",
+  "speaker": "opencpop",
+  "usage": "non-commercial-demo-only",
+  "reference_root": "/opt/diffsinger",
+  "experiment": "0116_female_triplet_ds1000",
+  "reference_revision": "12da2afc5f948b65f3d4fee9e0f3893427f841f9",
+  "vocoder_checkpoint": "/opt/diffsinger/checkpoints/nsf_hifigan/model",
+  "sampling_speedup": 10,
+  "cpu_threads": 4,
+  "artifacts": [
+    {
+      "path": "/opt/diffsinger/checkpoints/0116_female_triplet_ds1000/model_ckpt_steps_320000.ckpt",
+      "sha256": "d5b893f987f24f065ec2d7785a45a4fa677d7b83866c29dd10f1314af0904ad2"
+    },
+    {
+      "path": "/opt/diffsinger/checkpoints/nsf_hifigan/model",
+      "sha256": "2c576b63b7ed952161b70fad34e0562ace502ce689195520d8a2a6c051de29d6"
+    },
+    {
+      "path": "/opt/diffsinger/checkpoints/nsf_hifigan/config.json",
+      "sha256": "9707614b59c299766a91ea25b5ec62cfd813a45a902766c454f75b6868118684"
+    },
+    {
+      "path": "/opt/diffsinger/checkpoints/0116_female_triplet_ds1000/spk_map.json",
+      "sha256": "87e9122c9764ff543952a15ed73ae0a2c0243a6fdb18264eb4d73d434ee11df6"
+    },
+    {
+      "path": "/opt/diffsinger/checkpoints/0116_female_triplet_ds1000/config.yaml",
+      "sha256": "3cafe68a7009a54f38087621b9c6e1c1db3dd6a60367acf5a18510a81c221896"
+    },
+    {
+      "path": "/opt/diffsinger/checkpoints/0116_female_triplet_ds1000/opencpop-strict.txt",
+      "sha256": "de93f24026743d1f2e2fe1ea06127a03e42ab55f302f0b79bb6412052a501b93"
+    },
+    {
+      "path": "/opt/diffsinger/dictionaries/opencpop-strict.txt",
+      "sha256": "de93f24026743d1f2e2fe1ea06127a03e42ab55f302f0b79bb6412052a501b93"
+    }
+  ],
+  "terms": [
+    "https://github.com/openvpi/DiffSinger/releases/tag/v1.5.0",
+    "https://openvpi.github.io/vocoders/"
+  ],
+  "capabilities": {
+    "manual_pitch": true,
+    "manual_phoneme_duration": true,
+    "automatic_pitch": false,
+    "automatic_phoneme_duration": false
+  },
+  "engine": "diffsinger"
+}

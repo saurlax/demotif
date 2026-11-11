@@ -39,6 +39,21 @@ beforeEach(() => {
 })
 afterEach(async () => { queue.close(); release?.(); await queue.idle(); db.db.close(); config.media = originalMedia; rmSync(media, {recursive: true, force: true}) })
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
+it('carries full Japanese context into every phrase and invalidates distant readings without reacting to placement/name edits', () => {
+  queue.close()
+  const japanese = { ...profile, engine: 'nnsvs', nnsvs_version: '0.1.1', intensity: '0030', language: 'ja' } as InstalledProfile
+  queue = new VocalJobs(db, worker, () => japanese); queue.close()
+  const vocal = { ...source.vocal!, language: 'ja', syllables: { a: { kind: 'syllable' as const, lyric: '青', pronunciation: 'あお' }, b: { kind: 'syllable' as const, lyric: '空', pronunciation: 'そら' } } }
+  edit([{ type: 'source.update', source_id: 's', duration: 12, notes: [...source.notes, { id: 'b', start: 10, duration: 1, pitch: 62 }], vocal }])
+  start()
+  const snapshots = db.all<{ snapshot: string; fingerprint: string }>('SELECT snapshot,fingerprint FROM vocal_jobs')
+  expect(snapshots).toHaveLength(2)
+  expect(snapshots.map((r) => JSON.parse(r.snapshot))).toEqual(expect.arrayContaining([expect.objectContaining({ engine: 'nnsvs', source_context: expect.objectContaining({ notes: expect.arrayContaining([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'b' })]) }) })]))
+  edit([{ type: 'source.update', source_id: 's', name: 'Renamed' }]); start()
+  expect(db.all('SELECT id FROM vocal_jobs')).toHaveLength(2)
+  edit([{ type: 'source.update', source_id: 's', vocal: { ...vocal, syllables: { ...vocal.syllables, b: { ...vocal.syllables.b, pronunciation: 'くう' } } } }]); start()
+  expect(db.all('SELECT id FROM vocal_jobs')).toHaveLength(4)
+})
 it('deduplicates phrase work, publishes owned assets, preserves score versions and rejects stale versions', async () => {
   const a = start(), b = start(); const version = getProject(db, id).version
   await tick(); expect(calls).toBe(1); release!(); await queue.idle()
@@ -111,7 +126,7 @@ it('detects a missing derivative and regenerates it without advancing the score'
   const a = start(); await tick(); release!(); await queue.idle()
   const result = queue.status(id, a.id)
   const asset = db.get<{ storage_key: string }>('SELECT storage_key FROM assets WHERE id=?', result.phrases[0].asset_id)!
-  rmSync(join(media, asset.storage_key))
+  db.run('DELETE FROM assets WHERE storage_key=?', asset.storage_key)
   expect(queue.current(id, 's').status).toBe('missing')
   const version = getProject(db, id).version
   const b = start(); await tick(); release!(); await queue.idle()

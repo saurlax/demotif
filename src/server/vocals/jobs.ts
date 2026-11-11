@@ -9,28 +9,41 @@ import type { Store } from '../db'
 import { config, repositoryRoot } from '../config'
 import { conflict, invalid, missing } from '../errors'
 import { getProject, now } from '../projects'
-import { safePath, storeAsset } from '../media'
+import { safePath, prepareAsset, publishAsset } from '../media'
 import { voiceCatalog, requireVoice, type InstalledProfile } from './profiles'
 import { hash, phraseSources, profileHash, scoreHash } from './fingerprint'
-import { NativeWorker } from './worker'
+import type { NativeWorker } from './worker'
+import { renderModalVocal, type ModalVoiceTarget } from './modal'
 type Row = { id: string; project_id: string; source_id: string; fingerprint: string; score_hash: string; job_ids: string; cancelled: boolean }
 type Job = { id: string; project_id: string; fingerprint: string; snapshot: string; status: VocalRenderStatus['status']; stage: string | null; result: string | null; error: string | null }
 const requestSchema = z.object({ source_id: z.string(), expected_version: z.number().int(), quality: z.enum(['preview', 'final']).default('final') })
-const resultSchema = z.object({ path: z.string(), sample_rate: z.number().positive(), samples: z.number().positive(), duration_seconds: z.number().positive(),
+const resultSchema = z.object({ sample_rate: z.number().positive(), samples: z.number().positive(), duration_seconds: z.number().positive(),
   alignment: z.object({ offset_seconds: z.number(), lead_seconds: z.number(), tail_seconds: z.number(), source_start_beat: z.number() }) })
+const localResultSchema = resultSchema.extend({ path: z.string() })
+const modalResultSchema = z.strictObject({ audio_wav: z.instanceof(Uint8Array), result: resultSchema })
+type VocalSnapshot = { source: Source; source_context?: Source; tempo: number; profile_path: string; profile_fingerprint?: string; engine?: string; modal?: ModalVoiceTarget }
 export class VocalJobs {
   private pumping?: Promise<void>
   private controllers = new Map<string, AbortController>()
   private db: Store
-  private worker: NativeWorker
+  private worker?: NativeWorker
   private voice: typeof requireVoice
   private closed = false
-  constructor(db: Store, worker = new NativeWorker(), voice = requireVoice) {
+  constructor(db: Store, worker?: NativeWorker, voice = requireVoice) {
     this.db = db; this.worker = worker; this.voice = voice
     db.run("UPDATE vocal_jobs SET status='interrupted',error='Inference was interrupted' WHERE status='running'")
     this.dispatch()
   }
   private signature(profile: InstalledProfile) {
+    if (profile.modal && profile.engine === 'nnsvs') return hash({ profile: profileHash(profile), modal: profile.modal, device: 'cpu',
+      runtime: hash(['modal_ja_app.py', 'nnsvs-requirements.txt', 'nnsvs_native.py', 'japanese_score.py'].map((file) =>
+        readFileSync(resolve(repositoryRoot, 'workers/singing', file), 'utf8'))), precision: 'float32', seed: 1234 })
+    if (profile.modal) return hash({ profile: profileHash(profile), modal: profile.modal, device: 'cuda',
+      runtime: hash(['modal_app.py', 'pyproject.toml', 'native.py', 'score.py'].map((file) =>
+        readFileSync(resolve(repositoryRoot, 'workers/singing', file), 'utf8'))), precision: 'float32', seed: 1234 })
+    if (profile.engine === 'nnsvs') return hash({ profile: profileHash(profile), device: config.singingDevice,
+      runtime: hash(readFileSync(resolve(repositoryRoot, 'workers/singing/nnsvs-requirements.txt'), 'utf8')),
+      compiler: hash(['japanese_score.py', 'nnsvs_native.py', 'nnsvs_worker.py'].map((p) => readFileSync(resolve(repositoryRoot, 'workers/singing', p), 'utf8'))), precision: 'float32', seed: 1234 })
     return hash({ profile: profileHash(profile), device: config.singingDevice,
       runtime: hash(readFileSync(resolve(repositoryRoot, 'workers/singing/uv.lock'), 'utf8')), compiler: hash(['score.py', 'native.py', 'worker.py'].map((p) => readFileSync(resolve(repositoryRoot, 'workers/singing', p), 'utf8'))), precision: 'float32', seed: 1234 })
   }
@@ -50,14 +63,17 @@ export class VocalJobs {
     const profile = this.voice(source.vocal.voice_id, source.vocal.language)
     const signature = this.signature(profile)
     const key = hash({ score: scoreHash(source, document.tempo), signature, quality: 'full' })
-    const ids = this.db.tx(() => phraseSources(source).map((phrase) => {
-      const fingerprint = hash({ score: scoreHash(phrase, document.tempo), signature, quality: 'full' })
+    const context = profile.engine === 'nnsvs' ? { source_context: source, engine: profile.engine } : {}
+    const modal = profile.modal ? { ...profile.modal, voiceId: profile.id, ...(profile.engine === 'nnsvs' ? { engine: profile.engine } : {}) } : undefined
+    const ids = this.db.tx(() => phraseSources(source, profile.engine === 'nnsvs' ? document.tempo : undefined).map((phrase) => {
+      const fingerprint = hash({ score: scoreHash(phrase, document.tempo), signature, quality: 'full',
+        ...(profile.engine === 'nnsvs' ? { pronunciation_context: scoreHash(source, document.tempo) } : {}) })
       const id = hash({ project, fingerprint })
       const existing = this.db.get<Job>('SELECT * FROM vocal_jobs WHERE id=?', id)
       if (existing?.status === 'ready' && !this.hasAudio(existing))
         this.db.run("UPDATE vocal_jobs SET status='missing',result=NULL WHERE id=?", id)
       this.db.run("INSERT OR IGNORE INTO vocal_jobs (id,project_id,fingerprint,snapshot,status,created_at) VALUES (?,?,?,?,'queued',?)",
-        id, project, fingerprint, JSON.stringify({ source: phrase, tempo: document.tempo, profile_path: profile.path, profile_fingerprint: signature }), now())
+        id, project, fingerprint, JSON.stringify({ source: phrase, tempo: document.tempo, profile_path: profile.path, profile_fingerprint: signature, ...context, modal }), now())
       this.db.run("UPDATE vocal_jobs SET status='queued',error=NULL WHERE id=? AND status IN ('failed','interrupted','cancelled','missing')", id)
       return id
     }))
@@ -74,7 +90,7 @@ export class VocalJobs {
     if (!job.result) return false
     const result = JSON.parse(job.result) as VocalPhraseResult
     const asset = this.db.get<{ storage_key: string }>('SELECT storage_key FROM assets WHERE id=? AND project_id=?', result.asset_id, job.project_id)
-    return !!asset && existsSync(safePath(config.media, asset.storage_key))
+    return !!asset && (asset.storage_key.startsWith('s3:') || existsSync(safePath(config.media, asset.storage_key)))
   }
   status(project: string, id: string): VocalRenderStatus {
     const row = this.requireRequest(project, id)
@@ -137,22 +153,34 @@ export class VocalJobs {
       if (!job) return
       const controller = new AbortController(); this.controllers.set(job.id, controller)
       this.db.run("UPDATE vocal_jobs SET status='running',stage='loading' WHERE id=?", job.id)
-      const directory = safePath(config.media, `.vocal-work/${job.id}`)
+      let directory: string | undefined
       try {
-        mkdirSync(directory, { recursive: true })
-        const snapshot = JSON.parse(job.snapshot) as { source: Source; tempo: number; profile_path: string; profile_fingerprint?: string }
-        const input = join(directory, 'score.json'), output = join(directory, 'output.wav')
-        writeFileSync(input, JSON.stringify(snapshot))
-        const data = resultSchema.parse(await this.worker.run({ action: 'render_source', profile: snapshot.profile_path,
-          device: config.singingDevice, profile_fingerprint: snapshot.profile_fingerprint, score_path: input, output_path: output, seed: 1234 }, controller.signal,
-        (stage) => this.db.run('UPDATE vocal_jobs SET stage=? WHERE id=?', stage, job.id)))
+        const snapshot = JSON.parse(job.snapshot) as VocalSnapshot
+        let data: z.infer<typeof resultSchema>, bytes: Buffer
+        if (snapshot.modal) {
+          const response = modalResultSchema.parse(await renderModalVocal(snapshot.modal, snapshot.source, snapshot.tempo, controller.signal, snapshot.source_context))
+          data = response.result
+          bytes = Buffer.from(response.audio_wav)
+        } else if (this.worker) {
+          directory = safePath(config.media, `.vocal-work/${job.id}`)
+          mkdirSync(directory, { recursive: true })
+          const input = join(directory, 'score.json'), output = join(directory, 'output.wav')
+          writeFileSync(input, JSON.stringify(snapshot))
+          const local = localResultSchema.parse(await this.worker.run({ action: 'render_source', profile: snapshot.profile_path,
+            device: config.singingDevice, engine: snapshot.engine, profile_fingerprint: snapshot.profile_fingerprint, score_path: input, output_path: output, seed: 1234 }, controller.signal,
+          (stage) => this.db.run('UPDATE vocal_jobs SET stage=? WHERE id=?', stage, job.id)))
+          controller.signal.throwIfAborted()
+          if (realpathSync(local.path) !== realpathSync(output)) throw new Error('Unexpected worker output path')
+          data = local
+          bytes = readFileSync(output)
+        } else throw new Error('This render used a retired local voice. Start a new render with the Modal voice.')
         controller.signal.throwIfAborted()
-        if (realpathSync(data.path) !== realpathSync(output)) throw new Error('Unexpected worker output path')
-        const bytes = readFileSync(output)
         validateVocalWav(bytes, data)
+        const prepared = await prepareAsset(job.project_id, 'Vocal phrase.wav', 'audio/wav', bytes, 'vocal-render', undefined, controller.signal)
+        controller.signal.throwIfAborted()
         this.db.tx(() => {
           if (!this.active(job.id)) return
-          const asset = storeAsset(this.db, job.project_id, 'Vocal phrase.wav', 'audio/wav', bytes, 'vocal-render')
+          const asset = publishAsset(this.db, prepared)
           const result = { asset_id: asset.id, sample_rate: data.sample_rate, duration_seconds: data.duration_seconds, alignment: data.alignment }
           this.db.run("UPDATE vocal_jobs SET status='ready',stage='complete',result=?,error=NULL WHERE id=?", JSON.stringify(result), job.id)
           for (const request of this.db.all<Row>('SELECT * FROM vocal_requests WHERE project_id=? AND cancelled=0', job.project_id))
@@ -162,10 +190,13 @@ export class VocalJobs {
         if (!controller.signal.aborted) this.db.run('UPDATE vocal_jobs SET status=?,error=? WHERE id=?',
           error instanceof Error && error.name === 'WorkerExited' ? 'interrupted' : 'failed',
           error instanceof Error ? error.message : 'Singing synthesis failed', job.id)
-      } finally { this.controllers.delete(job.id); rmSync(directory, { recursive: true, force: true }) }
+      } finally {
+        this.controllers.delete(job.id)
+        if (directory) rmSync(directory, { recursive: true, force: true })
+      }
     }
   }
-  close() { this.closed = true; for (const c of this.controllers.values()) c.abort(); this.worker.stop() }
+  close() { this.closed = true; for (const c of this.controllers.values()) c.abort(); this.worker?.stop() }
 }
 const globalQueues = globalThis as typeof globalThis & { demotifVocals?: WeakMap<Store, VocalJobs> }
 export function vocals(db: Store) {

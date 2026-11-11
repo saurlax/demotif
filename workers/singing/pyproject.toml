@@ -24,3 +24,11 @@ dependencies = [
   "pyloudnorm==0.1.1",
   "g2pm==0.1.2.5",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true

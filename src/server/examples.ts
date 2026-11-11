@@ -5,7 +5,7 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { extname } from "node:path";
+import { extname, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@/shared/schema";
 import { config } from "./config";
 import { invalid, missing } from "./errors";
-import { safePath, storeAsset } from "./media";
+import { safePath, prepareAsset, publishAsset } from "./media";
 import { createProject, getProject, readProject } from "./projects";
 import type { Store } from "./db";
 const packSchema = z.object({
@@ -46,7 +46,7 @@ export function readPack(id: string) {
     if (
       !existsSync(p) ||
       !statSync(p).isFile() ||
-      !realpathSync(p).startsWith(realpathSync(directory) + "/")
+      !realpathSync(p).startsWith(realpathSync(directory) + sep)
     )
       invalid("Missing example media");
   }
@@ -73,7 +73,7 @@ export function listExamples() {
     }
   return result;
 }
-export function loadExample(db: Store, id: string) {
+export async function loadExample(db: Store, id: string) {
   if (id === "groove") return groove(db);
   const { directory, pack } = readPack(id),
     payloads = pack.media.map((m) => ({
@@ -83,31 +83,14 @@ export function loadExample(db: Store, id: string) {
   for (const { media, data } of payloads)
     if (createHash("sha256").update(data).digest("hex") !== media.id)
       invalid("Example audio failed its integrity check");
+  const prepared = await Promise.all(payloads.map(async ({media, data}) => {
+    const types: Record<string, string> = { '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.m4a': 'audio/mp4' };
+    const type = types[extname(media.file).toLowerCase()] ?? invalid('Unsupported example audio format');
+    return { media, asset: await prepareAsset('', media.filename, type, data) };
+  }));
   return db.tx(() => {
-    const p = createProject(db, pack.name, {}, true, id),
-      doc = structuredClone(pack.document),
-      mapping = new Map<string, string>();
-    for (const { media, data } of payloads) {
-      const suffix = extname(media.file).toLowerCase(),
-        types: Record<string, string> = {
-          ".wav": "audio/wav",
-          ".mp3": "audio/mpeg",
-          ".ogg": "audio/ogg",
-          ".flac": "audio/flac",
-          ".m4a": "audio/mp4",
-        };
-      if (!types[suffix]) invalid("Unsupported example audio format");
-      const asset = storeAsset(
-        db,
-        p.id,
-        media.filename,
-        types[suffix],
-        data,
-        "sample",
-        `examples/${media.id}${suffix}`,
-      );
-      mapping.set(media.id, asset.id);
-    }
+    const p = createProject(db, pack.name, {}, true, id), doc = structuredClone(pack.document), mapping = new Map<string, string>();
+    for (const {media, asset} of prepared) { publishAsset(db, {...asset, project_id: p.id}); mapping.set(media.id, asset.id); }
     const resolve = (id: string) =>
       mapping.get(id) ?? invalid("Missing example media");
     for (const s of doc.sources) {

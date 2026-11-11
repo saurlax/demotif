@@ -1,5 +1,5 @@
 /** Copy legacy local state without altering or deleting its source. */
-import { existsSync, mkdirSync, copyFileSync, cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, cpSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync, backup } from 'node:sqlite'
@@ -18,13 +18,4 @@ if(existsSync(resolve(legacy,'demotif.db'))){
   }else console.log('Destination database exists; left unchanged.')
   for(const directory of ['media','examples'])if(existsSync(resolve(legacy,directory))){cpSync(resolve(legacy,directory),resolve(destination,directory),{recursive:true,force:false,errorOnExist:false})}
 }
-const env=resolve(root,'.env.local'),oldEnv=resolve(sourceRoot,'.env')
-if(!existsSync(env)&&existsSync(oldEnv)){
-  copyFileSync(oldEnv,env)
-  // Relative legacy data paths now resolve against the workspace root.
-  // Keep a user's absolute path selections intact.
-  let content=readFileSync(env,'utf8')
-  content=content.replace(/^DEMOTIF_ANALYSIS_PYTHON=.*$/m,'DEMOTIF_ANALYSIS_PYTHON=./analysis/.venv/bin/python')
-  writeFileSync(env,content,{mode:0o600})
-  console.log('Copied server environment to ignored .env.local; values not printed.')
-}
+console.log('Data copy complete. Configure server credentials separately; run npm run migrate:config for existing project configuration.');

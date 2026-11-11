@@ -5,13 +5,14 @@ browser owns real-time audio.
 
 ## Layout
 
-- `src/app/` — Next.js 16 App Router + React + TypeScript + Tailwind v4 + shadcn/Base UI; serves UI and Node API.
+- `src/app/` — Next.js 16 App Router + React + TypeScript + Tailwind v4 + shadcn/Base UI; serves the UI.
+- `src/pages/api/` — streaming Node API adapter; preserves HEAD/Range content lengths.
 - `src/shared/schema.ts` — shared runtime Zod schemas; UI types derive from them.
 - `src/server/` — SQLite, typed commands/history, drafts, media, AI SDK producer and audio jobs.
 - `src/audio/` — browser DSP, Web Audio graph and Workers.
 - `resources/` — built-in sound catalog/media and licenses.
-- `workers/singing/` — optional Python 3.11/native PyTorch singing inference subprocess; no HTTP server.
-- `analysis/` — optional Python 3.13/librosa transcription subprocess; no Python HTTP server.
+- `workers/singing/` and `workers/yue2/` — private Modal music and singing inference.
+- `analysis/` — private Modal media processing with FFmpeg and librosa.
 - `data/` — ignored local database, media and example packs.
 - `openspec/` — existing specs and future proposals. `docs/architecture.md` describes current runtime boundaries.
 
@@ -39,7 +40,7 @@ npm run migrate:local -- /path/to/legacy-server # copy external legacy state; re
 - Real-time audio (transport, metronome, recording, monitoring, pitch detection) stays in the browser. Agent/network
   latency must never gate recording start.
 - Generation providers are separate from editing and playback. Never couple the DAW audio graph to a provider SDK.
-- Local adapters stand in for future hosted services: local filesystem ↔ object storage, SQLite ↔ Postgres,
+- One backend owns SQLite; optional frontends proxy its API. S3 owns durable binaries; local files are caches. Future adapters may replace SQLite ↔ Postgres,
   local AI SDK producer ↔ hosted agent. The app has no Python API or agent harness dependency.
 
 ## OpenSpec workflow
@@ -63,7 +64,7 @@ invariants above when they apply.
 
 - TypeScript: strict, `erasableSyntaxOnly` (no parameter properties / enums), path alias `@/`.
 - Node services own SQLite transactions. Runtime-validate all command/provider boundaries with shared Zod schemas.
-- Python is limited to optional analysis and native singing inference subprocesses; retain explicit file/JSON protocols and public type hints. Non-real-time singing inference runs server-side; browser audio remains responsible for transport, instrumental DSP and mixing.
+- Python workers run on Modal. Keep explicit RPC payloads and public type hints. Browser audio remains responsible for transport, instrumental DSP and mixing.
 - Do not add dependencies that are not used by the current change.
 
 ## Interface rules
@@ -115,8 +116,11 @@ invariants above when they apply.
   The project name opens a file menu containing Open project, Save (regular drafts), Save as, and audio
   Export. Open project uses a searchable dialog; choosing a saved project performs native document navigation
   so the unsaved-change warning still applies. Keep these actions out of standalone header buttons.
-  Save status and undo remain beside the project menu in the header. Playback controls, position,
-  tempo and time signature live at the right of the Library / Audio / Mixer tools row below it. Tempo
+  Save status remains beside the project menu in the header; recording settings live at the upper right.
+  Undo belongs beside split/copy/delete in the arrangement editing toolbar. Playback controls, position,
+  tempo and time signature live at the right of the Library / Mixer / Record tools row below it.
+  Record sits immediately after Mixer, starts directly with the selected microphone/count-in settings,
+  and shows Recording with a stop icon while active. Keep it out of playback controls, and omit the standalone Audio upload button. Tempo
   and meter default to borderless value controls; reveal the tempo input or meter picker only on activation.
   Enter/blur commits a valid tempo once, Escape cancels without writing, and keyboard focus returns to the value. Do not add a second project title bar or bottom
   transport bar. The time signature is an editable, versioned project setting. Whole-song playback
@@ -137,7 +141,7 @@ invariants above when they apply.
 - Use **Clip / Clips** consistently for musical fragments in the interface, including creation, track counts,
   editors, and saved library items. Keep existing internal protocol identifiers compatible with stored projects.
 - Audio generation, vocal separation, and audio-to-notes conversion are Producer actions. Do not add a standalone
-  Audio tools panel or generation form; retain audio import and the agent tools that propose results for approval.
+  Audio tools panel or generation form; retain audio import and the agent tools that apply validated, undoable results to the draft.
 - Creation and one-off configuration forms (such as new project name and tempo) open in a dialog from an explicit
   action. Do not place these forms directly on list, overview, or workspace pages by default. Keep inline controls
   for direct editing of existing content, such as transport, mixer, and clip parameters.

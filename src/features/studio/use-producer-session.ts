@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProducerCommand } from '@/types/project'
+import type { ProducerTarget, AudioContext } from '@/shared/schema'
+import {producerModels,defaultProducerModel} from '@/shared/producer-models.mjs'
 export interface ProducerEvent {
   seq: number
   type: string
@@ -8,6 +10,12 @@ export interface ProducerEvent {
   name?: string
   count?: number
   status?: string
+  target?: ProducerTarget
+  context?: AudioContext
+  model?: string
+  request_id?: string
+  sound?: import('@/types/project').Source['sound']
+  mode?:string
 }
 export interface ProducerRun {
   id: string
@@ -20,6 +28,8 @@ export interface ProducerRun {
 }
 export function useProducerSession(projectId: string) {
   const [runs, setRuns] = useState<ProducerRun[]>([]),
+    [models,setModels]=useState([...producerModels]),
+    [model,setModel]=useState(defaultProducerModel),
     [ready, setReady] = useState(false),
     [draft, setDraft] = useState(''),
     [sending, setSending] = useState(false),
@@ -34,6 +44,8 @@ export function useProducerSession(projectId: string) {
     setActiveProject(projectId)
     setRuns([])
     setReady(false)
+    setModels([...producerModels])
+    setModel(defaultProducerModel)
     setDraft('')
     setSending(false)
     setError(null)
@@ -43,6 +55,10 @@ export function useProducerSession(projectId: string) {
     runs,
     setRuns,
     ready,
+    models,
+    setModels,
+    model,
+    setModel,
     setReady,
     draft,
     setDraft,

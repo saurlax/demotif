@@ -7,6 +7,9 @@ import { handle } from "./api";
 import { config } from "./config";
 import { createProject, getProject, operation } from "./projects";
 import { sha256Text, pythonJSON } from "./compatibility";
+import { binaries, type S3BinaryStore } from './storage';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { createHash } from 'node:crypto';
 import { append } from "./producer";
 const sandbox = vi.hoisted(() => ({ value: undefined as unknown }));
 vi.mock("./db", async (original) => ({
@@ -78,43 +81,39 @@ it("accepts browser writes when Next's internal host differs from the public hos
   expect(response.status).toBe(201);
   expect(db.all("SELECT * FROM projects")).toHaveLength(1);
 });
-it("serves authorized media ranges and denies other projects", async () => {
-  const p = createProject(db, "P"),
-    other = createProject(db, "Other"),
-    form = new FormData();
-  form.set(
-    "file",
-    new File([new Uint8Array([1, 2, 3, 4, 5])], "sample.wav", {
-      type: "audio/wav",
-    }),
-  );
-  const upload = await handle(
-    new Request(`http://localhost/api/projects/${p.id}/assets`, {
-      method: "POST",
-      body: form,
-    }),
-  );
-  expect(upload.status).toBe(201);
-  const asset = await upload.json();
-  const response = await handle(
-    new Request(
-      `http://localhost/api/projects/${p.id}/assets/${asset.id}/content`,
-      { headers: { Range: "bytes=1-3" } },
-    ),
-  );
-  expect(response.status).toBe(206);
-  expect(response.headers.get("Content-Range")).toBe("bytes 1-3/5");
-  expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([2, 3, 4]);
-  expect(
-    (await call(`/projects/${other.id}/assets/${asset.id}/content`)).status,
-  ).toBe(404);
-  const invalid = await handle(
-    new Request(
-      `http://localhost/api/projects/${p.id}/assets/${asset.id}/content`,
-      { headers: { Range: "bytes=9-" } },
-    ),
-  );
-  expect(invalid.status).toBe(416);
+it('proxies before opening a local runtime and never falls back after upstream failure', async () => {
+  const old = config.upstream, local = sandbox.value; config.upstream = 'https://backend.test/api'; sandbox.value = undefined;
+  const send = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('unreachable'));
+  try { expect((await call('/projects')).status).toBe(502); expect(db.all('SELECT * FROM projects')).toHaveLength(0); }
+  finally { config.upstream = old; sandbox.value = local; send.mockRestore(); }
+});
+async function uploadDirectFixture(project:string,kind='recording',version?:number) {
+  const bytes=Buffer.from([1,2,3,4,5]),md5=createHash('md5').update(bytes).digest('hex');
+  const response=await call(`/projects/${project}/uploads`,{filename:'sample.wav',content_type:'audio/wav',size_bytes:bytes.length,md5,kind,project_version:version});
+  expect(response.status).toBe(201);const reserved=await response.json();
+  const store=binaries() as S3BinaryStore;
+  await store.client.send(new PutObjectCommand({Bucket:store.bucket,Key:store.prefix+'incoming/'+reserved.id,Body:bytes,ContentType:'audio/wav'}));
+  const completed=await call(`/projects/${project}/uploads/${reserved.id}/complete`,{});
+  expect(completed.status).toBe(201);return {asset:await completed.json(),reservation:reserved.id};
+}
+it('publishes a direct export at its captured version without saving the draft',async()=>{
+  const p=createProject(db,'Export');
+  await call(`/projects/${p.id}/commands`,{expected_version:1,command:{type:'project.set_tempo',tempo:99}});
+  await uploadDirectFixture(p.id,'export',1);
+  expect(db.get<{project_version:number}>('SELECT project_version FROM audio_exports')!.project_version).toBe(1);
+  expect(getProject(db,p.id).version).toBe(2);
+});
+it('issues exact-object sessions, denies foreign access and makes completion idempotent',async()=>{
+  const p=createProject(db,'P'),other=createProject(db,'Other');
+  const {asset,reservation}=await uploadDirectFixture(p.id);
+  const session=await (await call(`/projects/${p.id}/assets/${asset.id}/content`)).json();
+  expect(session.key).toContain('uploads/'+asset.id+'/');
+  expect(session.credentials.accessKeyId).toBe('temporary-id');
+  expect((await call(`/projects/${other.id}/assets/${asset.id}/content`)).status).toBe(404);
+  expect((await call(`/projects/${other.id}/uploads/${reservation}/complete`,{})).status).toBe(404);
+  await call(`/projects/${p.id}/uploads/${reservation}/complete`,{});
+  expect(db.all('SELECT * FROM assets')).toHaveLength(1);
+  expect((await call(`/projects/${p.id}/assets`,{})).status).toBe(410);
 });
 it("replays durable SSE events and applies a proposal only once", async () => {
   const p = createProject(db, "P"),

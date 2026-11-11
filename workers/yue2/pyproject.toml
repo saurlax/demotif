@@ -1,0 +1,23 @@
+[project]
+name = "demotif-yue2"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "torch==2.10.0",
+  "yue2-infer==0.1.6",
+]
+
+[dependency-groups]
+weights = ["huggingface-hub==0.36.2"]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+yue2-infer = { git = "https://github.com/multimodal-art-projection/YuE.git", rev = "1116bea76032bee5668e5f097294d082fa0b84f0" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

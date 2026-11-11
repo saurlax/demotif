@@ -1,0 +1,7 @@
+{
+  "runtime": { "mode": "local" },
+  "producer": {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "realtime": { "model": "stepaudio-3-realtime-preview", "voice": "wenrounansheng" }
+  }
+}

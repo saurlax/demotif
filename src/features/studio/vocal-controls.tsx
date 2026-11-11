@@ -6,12 +6,22 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { currentVocal, cancelVocal, synthesizeVocal } from '@/lib/api'
 import type { Project, Source } from '@/types/project'
-import type { VocalRenderStatus } from '@/types/vocal'
+import type { VocalRenderStatus, VocalVoice } from '@/types/vocal'
 import { hasDraftChanges } from './save-status'
 import { applyVocalEntry, vocalEntryPreview, assignVocalLyrics, vocalSyllableError, vocalScoreError } from '@/lib/vocal-lyrics'
 import { ParameterSlider } from './parameter-slider'
 
 type Vocal = NonNullable<Source['vocal']>
+function useVoice(source: Source) {
+  const [voice, setVoice] = useState<VocalVoice>()
+  useEffect(() => { let active = true
+    void import('@/lib/api').then((api) => api.listVocalVoices()).then((voices) => {
+      if (active) setVoice(voices.find((v) => v.id === source.vocal?.voice_id))
+    }).catch(() => {})
+    return () => { active = false }
+  }, [source.vocal?.voice_id])
+  return voice
+}
 export function VocalRenderControls({ project, source, disabled, onError }: {
   project: Project; source: Source; disabled: boolean; onError: (message: string) => void
 }) {
@@ -62,6 +72,7 @@ export function VocalRenderControls({ project, source, disabled, onError }: {
 export function VocalNoteFields({ source, noteId, disabled, update, onApplied }: {
   source: Source; noteId: string; disabled: boolean; update: (patch: Pick<Source, 'notes' | 'vocal'>) => Promise<void>; onApplied: () => void
 }) {
+  const voice = useVoice(source)
   const vocal = source.vocal!, assignment = vocal.syllables[noteId]
   const savedLyric = assignment?.kind === 'continue' ? '-' : assignment?.lyric ?? ''
   const [lyric, setLyric] = useState(savedLyric)
@@ -110,14 +121,14 @@ export function VocalNoteFields({ source, noteId, disabled, update, onApplied }:
           onClick={() => void update({ notes: source.notes, vocal: { ...vocal, syllables: { ...vocal.syllables, [noteId]: { kind: 'continue' } } } }).then(onApplied).catch((e: Error) => setSaveError(e.message))}>Continue syllable</Button>
       </div>
     </form>
-    <details className="space-y-3"><summary className="cursor-pointer text-sm">Vibrato</summary>
+    {voice?.controls.vibrato && <details className="space-y-3"><summary className="cursor-pointer text-sm">Vibrato</summary>
     <ParameterSlider label="Vibrato depth" value={vib.depth_cents} min={0} max={200} format={(v) => `${v} cents`}
       onChange={(depth_cents) => updateVocal({ ...vocal, vibrato: { ...vocal.vibrato, [noteId]: { ...vib, depth_cents } } })} />
     <ParameterSlider label="Vibrato rate" value={vib.rate_hz} min={1} max={12} step={0.1} format={(v) => `${v.toFixed(1)} Hz`}
       onChange={(rate_hz) => updateVocal({ ...vocal, vibrato: { ...vocal.vibrato, [noteId]: { ...vib, rate_hz } } })} />
     <ParameterSlider label="Vibrato onset" value={vib.onset} min={0} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`}
       onChange={(onset) => updateVocal({ ...vocal, vibrato: { ...vocal.vibrato, [noteId]: { ...vib, onset } } })} />
-    </details>
+    </details>}
   </fieldset>
 }
 export function VocalLyrics({ source, disabled, update }: { source: Source; disabled: boolean; update: (v: Vocal) => Promise<void> }) {
@@ -149,6 +160,7 @@ export function VocalLyrics({ source, disabled, update }: { source: Source; disa
 }
 
 export function VocalExpression({ source, disabled, update }: { source: Source; disabled: boolean; update: (v: Vocal) => Promise<void> }) {
+  const voice = useVoice(source)
   const [lane, setLane] = useState<'pitch' | 'volume' | null>(null)
   const [draft, setDraft] = useState<{ beat: number; value: number }[] | null>(null)
   const cancel = useRef<(() => void) | null>(null)
@@ -160,6 +172,7 @@ export function VocalExpression({ source, disabled, update }: { source: Source; 
   return <div className="shrink-0 border-t" data-unsaved={draft != null}>
     <div className="flex h-9 items-center gap-1 px-3">
       {(['pitch', 'volume'] as const).map((key) => <Button key={key} size="sm" variant={lane === key ? 'secondary' : 'ghost'}
+        disabled={key === 'pitch' ? !voice?.controls.pitch : !voice?.controls.volume}
         aria-expanded={lane === key} onClick={() => { cancel.current?.(); setLane(lane === key ? null : key) }}>{key === 'pitch' ? 'Pitch curve' : 'Volume curve'}</Button>)}
       {lane && <Button size="sm" variant="ghost" disabled={disabled || points.length > source.duration * 4}
         onClick={() => {
@@ -238,14 +251,14 @@ export function VocalVoiceSettings({ source, update }: { source: Source; update:
     <Label htmlFor="vocal-voice">Voice</Label>
     <select id="vocal-voice" className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={vocal.voice_id} onChange={(e) => {
       const next = voices.find((v) => v.id === e.target.value)!
-      void update({ ...vocal, voice_id: next.id, language: next.languages[0] })
+      void update({ ...vocal, voice_id: next.id, language: next.languages[0] }).catch((e) => setError(String(e)))
     }}>
       {!voice && <option value={vocal.voice_id}>{vocal.voice_id} · unavailable</option>}
       {voices.map((v) => <option key={v.id} value={v.id} disabled={!v.ready}>{v.name}</option>)}
     </select>
     <Label htmlFor="vocal-language">Language</Label>
     <select id="vocal-language" className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={vocal.language}
-      onChange={(e) => void update({ ...vocal, language: e.target.value })}>
+      onChange={(e) => void update({ ...vocal, language: e.target.value }).catch((e) => setError(String(e)))}>
       {(voice?.languages ?? [vocal.language]).map((language) => <option key={language}>{language}</option>)}
     </select>
     {voice && <p className="text-sm text-muted-foreground">{voice.usage}{!voice.controls.automaticPitch || !voice.controls.automaticTiming ? ' · Manual pitch and initial phoneme timing' : ''}</p>}

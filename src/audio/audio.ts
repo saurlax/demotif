@@ -1,4 +1,5 @@
 import { audibleTracks, BPM } from './model'
+import { fetchMedia } from '@/lib/direct-media'
 import type { Asset, Clip, Note, Project } from './model'
 import { partRange } from './sequence'
 import { AudioRenderer } from './audioRenderer'
@@ -7,6 +8,7 @@ import { renderVoice, SYNTH_RATE as RATE } from './voices'
 import { clipEnvelope, createMaster, createTrackBus } from './effects'
 import { createMixGraph } from './mixGraph'
 import type { TrackEffects } from './model'
+import { Metronome } from './metronome'
 export { synthesize } from './voices'
 
 export class AudioEngine {
@@ -18,6 +20,9 @@ export class AudioEngine {
   private startedAt = 0
   private from = 0
   private pendingFrom: number | null = null
+  private metronome?: Metronome
+  private metronomeSettings = { enabled: false, tempo: BPM, meter: '4/4' }
+  private playbackAnchor?: {from:number;when:number;until?:number}
   private generation = 0
   private liveDisposers: (() => void)[] = []
   private loading = new Map<string, Promise<void>>()
@@ -30,6 +35,9 @@ export class AudioEngine {
   // A song can contain hundreds of recorded Parts. Release the previous
   // project's PCM, including late decode results, when switching projects.
   release() {
+    this.metronome?.stop()
+    this.metronomeSettings.enabled = false
+    this.playbackAnchor = undefined
     this.loadGeneration++
     this.buffers.clear()
     this.rendered.clear()
@@ -108,7 +116,7 @@ export class AudioEngine {
             if (!decoded)
               decoded = this.media.has(url)
                 ? Promise.resolve(this.media.get(url)!)
-                : fetch(url)
+                : fetchMedia(url)
                     .then((response) => {
                       if (!response.ok)
                         throw new Error(`无法载入 ${asset.name}`)
@@ -140,6 +148,20 @@ export class AudioEngine {
   getContext() {
     return (this.context ??= new AudioContext({ latencyHint: 'interactive' }))
   }
+  configureMetronome(enabled:boolean,tempo:number,meter:string) {
+    this.metronomeSettings={enabled,tempo,meter}
+    this.syncMetronome()
+  }
+  private syncMetronome(continueBeforeStart=false){
+    this.metronome?.stop()
+    const {enabled,tempo,meter}=this.metronomeSettings
+    if(enabled){
+      const context=this.getContext()
+      this.metronome??=new Metronome(context)
+      this.metronome.start(tempo,meter,this.playbackAnchor?{...this.playbackAnchor,continueBeforeStart}:undefined)
+    }
+  }
+  stopMetronome(){this.metronome?.stop()}
   buffer(asset: Asset): AudioBuffer {
     if (asset.kind === 'import') {
       const imported = this.buffers.get(asset.id)
@@ -461,7 +483,9 @@ export class AudioEngine {
           : 0)
     )
   }
-  stop() {
+  stop(options?:{keepMetronome?:boolean}) {
+    if(!options?.keepMetronome)this.metronome?.stop()
+    this.playbackAnchor=undefined
     this.generation++
     this.pendingFrom = null
     for (const source of this.sources) {
@@ -473,9 +497,16 @@ export class AudioEngine {
     this.liveDisposers = []
   }
   async play(project: Project, from: number) {
+    const prepared=await this.preparePlayback(project,from,true)
+    if(!prepared)return
+    const ctx=prepared.context
+    const aligned=this.metronomeSettings.enabled?this.metronome?.alignedStart(from,ctx.currentTime+0.15):undefined
+    return prepared.start(aligned??ctx.currentTime+0.15,aligned!==undefined)
+  }
+  async preparePlayback(project:Project,from:number,keepMetronome=false){
     this.stopPart()
     this.stopAudition()
-    this.stop()
+    this.stop({keepMetronome})
     const generation = this.generation
     this.pendingFrom = from
     const ctx = this.getContext()
@@ -498,10 +529,22 @@ export class AudioEngine {
         .map((asset) => this.render(asset)),
     )
     if (generation !== this.generation) return
-    this.from = from
-    this.startedAt = ctx.currentTime + 0.15
-    this.pendingFrom = null
-    this.schedule(project, ctx, ctx.destination, from, this.startedAt, true)
+    return {context:ctx,start:(when:number,continueBeforeStart=false,duration?:number)=>{
+      if(generation!==this.generation)return false
+      this.from=from;this.startedAt=when;this.pendingFrom=null
+      let destination:AudioNode=ctx.destination
+      if(duration!==undefined){
+        if(!Number.isFinite(duration)||duration<=0)throw new Error('Playback duration must be positive.')
+        const gate=ctx.createGain(),end=when+duration
+        gate.gain.setValueAtTime(0,ctx.currentTime);gate.gain.setValueAtTime(1,when)
+        gate.gain.setValueAtTime(1,Math.max(when,end-.008));gate.gain.linearRampToValueAtTime(0,end)
+        gate.connect(ctx.destination);this.liveDisposers.push(()=>gate.disconnect());destination=gate
+      }
+      this.schedule(project,ctx,destination,from,when,true)
+      this.playbackAnchor={from,when,...(duration!==undefined?{until:when+duration}:{})}
+      if(this.metronomeSettings.enabled)this.syncMetronome(continueBeforeStart)
+      return true
+    }}
   }
   private schedule(
     project: Project,
@@ -588,9 +631,11 @@ export class AudioEngine {
     }
   }
   async export(project: Project, duration: number): Promise<Blob> {
-    this.renderedLimit = Math.max(64, project.assets.length)
-    await this.prepare(project.assets)
-    await Promise.all(project.assets.map((asset) => this.render(asset)))
+    const used=new Set(audibleTracks(project.tracks).flatMap(track=>track.clips.map(clip=>clip.assetId)))
+    const assets=project.assets.filter(asset=>used.has(asset.id))
+    this.renderedLimit = Math.max(64, assets.length)
+    await this.prepare(assets)
+    await Promise.all(assets.map((asset) => this.render(asset)))
     const ctx = new OfflineAudioContext(
       2,
       Math.ceil(

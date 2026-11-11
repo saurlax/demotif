@@ -11,6 +11,7 @@ export interface Note {
   start: number
   duration: number
   velocity: number
+  sample?: {offset:number;duration:number;rootNote:number}
 }
 export interface DrumSample {
   pitch: number

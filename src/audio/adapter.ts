@@ -1,3 +1,4 @@
+import { randomUUID } from '@/shared/id'
 import type { VocalRenderStatus } from '@/types/vocal'
 import { synthSchema } from '@/shared/schema'
 import type {
@@ -162,7 +163,7 @@ export function emptySource(
   sound: Source['sound'] = 'piano',
 ): Source {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     name: kind === 'drums' ? 'Drums' : 'New Clip',
     kind,
     duration: 16,

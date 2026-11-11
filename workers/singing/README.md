@@ -36,8 +36,7 @@ The dependency lock isolates older reference-code requirements from the optional
 The CLI bridge runs the original pinned `main.py`, with the same import-only bridge and four CPU threads as the adapter:
 
 ```bash
-DEMOTIF_DIFFSINGER_REFERENCE="$PWD/data/models/diffsinger-reference" \
-uv run --project workers/singing python workers/singing/reference_cli.py \
+uv run --project workers/singing python workers/singing/reference_cli.py "$PWD/data/models/diffsinger-reference" \
   "$PWD/data/models/opencpop-native-demo/demo-2s.ds" \
   --exp 0116_female_triplet_ds1000 --spk opencpop --seed 1234 --speedup 10 \
   --out "$PWD/data/models/opencpop-native-demo/reference"
@@ -47,9 +46,13 @@ The adapter preserves native float PCM. The reference CLI saves int16 WAV, so co
 
 ## Worker protocol
 
-Run `uv run --project workers/singing python workers/singing/worker.py` and send one JSON object per line. Protocol 1 supports `ready`, `render`, `render_source`, and `shutdown`. A render specifies `id`, an absolute `profile` path, `score_path`, `output_path`, optional `device` (`cpu` by default), and `seed`.
+For the private OpenCpop CUDA deployment, set `DEMOTIF_SINGING_MODAL_APP=demotif-singing` and, if needed, `DEMOTIF_SINGING_MODAL_ENVIRONMENT=main` on the Node host. Use Modal SDK credentials scoped to the deployment workspace. The worker uses the checked-in OpenCpop profile and the private `demotif-singing-opencpop` Volume. Populate that Volume with the profile's checkpoint files under their paths relative to the upstream `checkpoints/` directory, together with the upstream notices. The worker validates the manifest hashes on load. See the [Modal worker commands](../README.md) to check the lockfile and deploy.
 
-Stdout contains JSON events only; upstream output goes to stderr. Events report loading, synthesis, completion or a structured error. The same process reuses its loaded singer. Audio is atomically published as a file rather than sent as base64. The Node adapter serializes inference, keeps the process warm, persists jobs and kills/restarts the child on active cancellation. `render_source` accepts the immutable `{source,tempo}` snapshot; `render` accepts upstream DS score input.
+The Node queue owns render state and publishes validated WAVs to the configured media store. The private OpenCpop deployment is for non-commercial evaluation. Set `DEMOTIF_SINGING_JA_MODAL_APP=demotif-singing-ja` to enable Namine Ritsu through the private Modal CPU deployment.
+
+For offline benchmarks, run `uv run --project workers/singing python workers/singing/worker.py` and send one JSON object per line. Protocol 1 supports `ready`, `render`, `render_source`, and `shutdown`. A render specifies `id`, an absolute `profile` path, `score_path`, `output_path`, optional `device` (`cpu` by default), and `seed`.
+
+Stdout contains JSON events only; upstream output goes to stderr. Events report loading, synthesis, completion or a structured error. The same process reuses its loaded singer. Audio is atomically published as a file. `render_source` accepts the immutable `{source,tempo}` snapshot; `render` accepts upstream DS score input.
 
 ## Studio and verification
 
@@ -59,4 +62,77 @@ Open Library → plus → Vocal. Select the installed voice and language, add mo
 DEMOTIF_TEST_NATIVE_SINGING=1 npm test -- --run src/server/vocals/native.test.ts
 ```
 
-Ordinary `npm test`, build and instrumental editing work without this optional environment or models. To disable inference, remove the local profile or set the worker executable to an uninstalled location; scores and already rendered matching audio remain intact. For code rollback, retain a SQLite backup from before vocal edits; older builds cannot interpret vocal sources. Never strip score data to make an older build load it.
+Ordinary `npm test`, build and instrumental editing work without Python or model weights. To disable a hosted voice, clear its Modal app setting. Scores and already rendered matching audio remain intact.
+
+## Japanese native validation environment
+
+Japanese synthesis uses a separate optional Python 3.11 environment. The existing DiffSinger environment is retained. On Linux, install a C/C++ compiler and Python development headers for the native audio packages, then:
+
+```bash
+python3.11 -m venv workers/singing/.venv-nnsvs
+workers/singing/.venv-nnsvs/bin/python -m pip install pip==24.3.1 wheel==0.45.1 Cython==0.29.37
+workers/singing/.venv-nnsvs/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchaudio==2.5.1
+workers/singing/.venv-nnsvs/bin/python -m pip install --no-build-isolation -r workers/singing/nnsvs-requirements.txt
+git clone https://github.com/chomeyama/SiFiGAN.git data/models/sifigan-reference
+git -C data/models/sifigan-reference checkout cdb20daeb4da4a126077819091706ee90522c7a8
+```
+
+The selected SiFiGAN checkout supplies its unchanged native inference modules. Its training CLI and training-only dependency set are not installed. See `docs/japanese-vocal-model-screening.md` for the exact official CRISSCROSS archive, terms and digests. Extract that operator-acquired archive into ignored `data/models/`; retain its README and original model/configuration files.
+
+Run this validation against the extracted directory containing `config.yaml`, `qst.hed`, the native checkpoints and scalers:
+
+```bash
+workers/singing/.venv-nnsvs/bin/python workers/singing/benchmark_japanese.py \
+  --model 'data/models/ENUNU_波音リツ_CRISSCROSS_2824' \
+  --sifigan-root data/models/sifigan-reference \
+  --output data/models/japanese-validation
+```
+
+It renders the original kana phrase あおのきょうかい at 150 BPM with explicit model intensity `0030`, and writes a playable float WAV plus `validation.json` containing artifact hashes, runtime versions, PCM measurements and CPU timing/memory. This standalone validation does not edit a project or register a ready voice by itself. Mocked tests are not a replacement for this run.
+### Registering the optional Japanese engine
+
+NNSVS profiles use `engine: "nnsvs"`, `language: "ja"`, `model_root`,
+`reference_root` (the pinned SiFiGAN source), `dictionary_root` (Open JTalk UTF-8
+1.11 dictionary), `validation_report`, `nnsvs_version: "0.1.1"`, `intensity:
+"0030"`, and the common identity/artifact/capability fields. Install
+`pyopenjtalk==0.4.1` with build isolation enabled **before** installing the rest
+of `nnsvs-requirements.txt` with `--no-build-isolation`; its source metadata needs its
+own build backend. Preinstall the official Open JTalk dictionary; runtime
+constructs `OpenJTalk(dn_mecab=...)` directly and never downloads a dictionary.
+
+After the benchmark passes, register the local files:
+
+```bash
+python workers/singing/register_japanese.py \
+  --model /operator/voice --sifigan /operator/SiFiGAN \
+  --dictionary /operator/open_jtalk_dic_utf_8-1.11 \
+  --report /operator/validation/validation.json \
+  --output /operator/models/ritsu-crisscross-2824-ja/profile.json
+```
+
+The isolated Python executable is derived from `workers/singing/.venv-nnsvs` for the current OS. Voice profiles live under the configured data directory in `models/`. The catalog requires native
+inference evidence, all model components, an installed dictionary, and matching
+file hashes. Original README and dictionary/source licenses must accompany the
+operator-installed files. Model files are not bundled in this repository.
+
+The Japanese entry point `nnsvs_worker.py` speaks the existing protocol 1
+(`ready`, `render_source`, `shutdown`, progress/error/complete events). It uses
+the same audio/alignment result as DiffSinger. Switching engines or model
+fingerprints restarts the warm process; cancelling kills it and publishes no
+partial audio. Omitted `engine` keeps the existing DiffSinger path and hashes.
+
+Japanese snapshots retain full-source pronunciation context before partitioning
+into short phrases. Articulation gaps are retained, and continuations stay with
+their preceding syllable. Kanji words spanning note boundaries need explicit
+per-note kana when the reading boundary is ambiguous. Explicit kana and phoneme
+overrides win over morphology; source lyrics, notes and revisions are unchanged.
+Predicted phone durations are fitted into each accepted note budget, preserving
+rests and clip alignment. NNSVS provides automatic pitch and phone timing plus
+manual phone durations and volume. Manual pitch/vibrato are unavailable and
+nonempty overrides are rejected rather than ignored. Japanese cache keys include
+the full reading context, compiler, requirements and every installed artifact;
+legacy DiffSinger cache signatures are unchanged.
+
+## Object-backed native cache
+
+The SQLite-owning backend publishes installed voice resources with the storage operator's `catalogs` command. The database stores a manifest of relative paths and immutable S3 references, including weights, dictionaries, native source, reports and licenses. On startup it reconstructs verified local model inputs and relocates profile paths. Python executables and environments remain runtime installations. Cache eviction does not remove durable audio or model objects; incompatible executables or altered model hashes still fail readiness. Only the owning backend runs native jobs; API-proxy frontends do not initialize workers. See `docs/architecture.md` for generic storage configuration and migration commands.

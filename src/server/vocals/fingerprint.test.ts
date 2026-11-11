@@ -11,3 +11,13 @@ it('splits at actual rests, preserves continuation groups and ignores source nam
   expect(scoreHash(source, 120)).toBe(scoreHash({ ...source, name: 'Changed' }, 120))
   expect(scoreHash(source, 120)).not.toBe(scoreHash(source, 130))
 })
+it('keeps short Japanese articulation gaps and continuation with a phrase while bounding ordinary groups', () => {
+  const source = sourceSchema.parse({ kind: 'vocal', duration: 16,
+    notes: Array.from({ length: 12 }, (_, i) => ({ id: String(i), pitch: 64, start: i, duration: i === 7 ? 1 : .91 })),
+    vocal: { voice_id: 'ja', language: 'ja', syllables: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i), i === 8 ? { kind: 'continue' } : { kind: 'syllable', lyric: 'あ' }])) } })
+  const phrases = phraseSources(source, 150)
+  expect(phrases.length).toBeGreaterThan(1)
+  expect(phrases[0].notes.length).toBeGreaterThan(1)
+  expect(phrases.find((s) => s.notes.some((n) => n.id === '8'))!.notes.some((n) => n.id === '7')).toBe(true)
+  expect(phrases.flatMap((s) => s.notes)).toEqual(source.notes)
+})

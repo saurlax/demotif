@@ -1,3 +1,6 @@
+import { randomUUID } from '@/shared/id'
+import { uploadDirect } from './direct-media'
+export { fetchMedia } from './direct-media'
 import type {
   AgentReply,
   CommandResult,
@@ -113,7 +116,7 @@ export function applyBatch(
   projectId: string,
   expectedVersion: number,
   commands: ProducerCommand[],
-  requestId: string = crypto.randomUUID(),
+  requestId: string = randomUUID(),
 ): Promise<{ project: Project }> {
   return request(`/projects/${projectId}/commands/batch`, {
     method: 'POST',
@@ -129,18 +132,7 @@ export async function uploadAudio(
   file: File,
   kind?: 'recording' | 'vocal' | 'instrument' | 'sample' | 'reference',
 ): Promise<import('@/types/project').MediaAsset> {
-  const body = new FormData()
-  body.append('file', file)
-  if (kind) body.append('kind', kind)
-  const response = await fetch(`${API_BASE}/projects/${projectId}/assets`, {
-    method: 'POST',
-    body,
-  })
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.message ?? 'Upload failed')
-  }
-  return response.json()
+  return uploadDirect(projectId,file,file.name,kind)
 }
 export function mediaUrl(projectId: string, assetId: string) {
   return `${API_BASE}/projects/${projectId}/assets/${assetId}/content`

@@ -1,3 +1,6 @@
+import {useProducerRender} from './use-producer-render'
+import {audioActionMessage} from './audio-context-actions'
+import { randomUUID } from '@/shared/id'
 import { VocalRecordingDialog } from './vocal-recording-dialog'
 import { referenceCommands, type ReferenceSnapshot } from './reference-recording'
 import type { VocalTake } from '@/audio/vocal-recorder'
@@ -6,8 +9,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Library,
-  Upload,
   SlidersHorizontal,
+  Mic,
+  Square,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
@@ -21,7 +25,15 @@ import {
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb'
 import { Arrangement } from './arrangement'
+import { ProducerComposer } from './producer-composer'
+import {selectionContext} from './producer-context'
+import { useClipAudioActions } from './clip-audio-actions'
 import { ProducerPanel } from './producer-panel'
+import { useProducerController } from './use-producer-controller'
+import {useProducerVoice} from './use-producer-voice'
+import {usePerformanceRecording} from './use-performance-recording'
+import {PerformanceRecordingDialog} from './performance-recording-dialog'
+import {useProducerPerformance} from './use-producer-performance'
 import { useProducerSession } from './use-producer-session'
 import { ProjectMenu } from './project-menu'
 import { StudioHeaderActions } from './studio-header-actions'
@@ -41,12 +53,13 @@ import {
   undoChange,
   uploadAudio,
   mediaUrl,
+  fetchMedia,
 } from '@/lib/api'
 import { useStudioStore } from '@/stores/studio'
 import type { Project, Source, Clip, ProducerCommand } from '@/types/project'
 
 export function StudioPage() {
-  const { projectId = '' } = useParams<{projectId:string}>(),
+  const { projectId = '' } = useParams<{projectId:string}>() ?? {},
     queryClient = useQueryClient()
   const params = useSearchParams()
   const session = useProducerSession(projectId)
@@ -83,11 +96,10 @@ export function StudioPage() {
   const onRecordingState = useCallback((dirty: boolean) => { recordingDirty.current = dirty }, [])
   const recordingSave = useRef<{ takeId: string; assetId?: string; commands?: ProducerCommand[]; expectedVersion?: number; requestId: string } | null>(null)
   const [saves] = useState(() => createSaveTracker(setSaving))
-  const hasUnsavedChanges = () => recordingDirty.current || !!current.current?.has_unsaved_changes || saves.isSaving() || persisting || !!session.applying
+  const hasUnsavedChanges = () => performance.isDirty() || recordingDirty.current || !!current.current?.has_unsaved_changes || saves.isSaving() || persisting || !!session.applying || session.sending || session.runs.some(r=>r.status==='running') || !!session.draft.trim() || clipAudio.busy || clipAudio.pending.length>0 || voice.open
   const preparingEdits = useRef(0)
   const saveInFlight = useRef(false)
-  const input = useRef<HTMLInputElement>(null),
-    current = useRef(project),
+  const current = useRef(project),
     queue = useRef<Promise<void>>(Promise.resolve())
   current.current = project
   const onError = useCallback((message: string) => { notifyError(message) }, [])
@@ -104,6 +116,21 @@ export function StudioPage() {
     },
     [queryClient],
   )
+  const controller = useProducerController(project, session, setProject)
+  const clipAudio = useClipAudioActions(project, audio.engine, setProject, controller.active?.id)
+  useProducerRender(project?.id??'',controller,clipAudio)
+  const voice=useProducerVoice(project,controller,clipAudio.context,audio.engine)
+  const performance=usePerformanceRecording(project,audio.engine,setProject,voice)
+  useProducerPerformance(project,controller,performance,voice,audio,{
+    save:async plan=>{await persist(plan.save_as,plan.name??undefined);return current.current!.version},
+    export:()=>exportWav(true),
+  })
+  const setAudioContext=clipAudio.setContext
+  const setProducerSelection=useCallback((noteIds:string[])=>{
+    const p=current.current;if(!p||!editor)return
+    const next=selectionContext(p,{clipId:selectedClip??undefined,sourceId:editor,noteIds})
+    if(next)setAudioContext(next)
+  },[editor,selectedClip,setAudioContext])
   const commit = useCallback(
     (commands: ProducerCommand[], throwOnError = false) => {
       const finishSave = saves.begin()
@@ -130,7 +157,7 @@ export function StudioPage() {
     [projectId, setProject, queryClient, audio.engine, saves, onError],
   )
   useEffect(() => {
-    if (params.get('panel') === 'library' || params.get('panel') === 'sounds')
+    if (params?.get('panel') === 'library' || params?.get('panel') === 'sounds')
       setLibrary(true)
   }, [params])
   useEffect(() => {
@@ -158,7 +185,8 @@ export function StudioPage() {
         return
       if (e.code === 'Space') {
         e.preventDefault()
-        useStudioStore.getState().togglePlayback()
+        if(performance.active)performance.stop()
+        else useStudioStore.getState().togglePlayback()
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         e.preventDefault()
@@ -179,6 +207,7 @@ export function StudioPage() {
     await queue.current.catch((error) => onError(String(error))).finally(finishSave)
   }
   async function persist(saveAs: boolean, name?: string) {
+    if(performance.isDirty())throw new Error('Finish recording and placing the audio before saving.')
     if (saveInFlight.current) throw new Error('A save is already in progress.')
     if (preparingEdits.current || session.applying) throw new Error('Wait for the current upload or import to finish.')
     saveInFlight.current = true
@@ -235,7 +264,7 @@ export function StudioPage() {
         {
           type: 'part.add',
           part: {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             name: source.name,
             source_id: source.id,
             offset: 0,
@@ -266,7 +295,7 @@ export function StudioPage() {
       commands: ProducerCommand[] = []
     let trackId = target ?? p.document.tracks.find((t) => !t.locked)?.id
     if (!trackId) {
-      trackId = crypto.randomUUID()
+      trackId = randomUUID()
       commands.push({
         type: 'track.add',
         id: trackId,
@@ -281,7 +310,7 @@ export function StudioPage() {
     }
     commands.push({
       type: 'clip.add',
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       track_id: trackId,
       name: part.name,
       kind: source.kind === 'audio' ? 'audio' : 'midi',
@@ -296,55 +325,11 @@ export function StudioPage() {
     })
     await commit(commands)
   }
-  async function importFiles(files: FileList | null) {
-    if (!files) return
-    const id = projectId
-    const finishSave = saves.begin()
-    preparingEdits.current++
-    setBusy(true)
-    try {
-      if (files.length > 8) throw new Error('Import up to 8 files at once')
-      for (const file of Array.from(files)) {
-        if (file.size > 60 * 1024 * 1024)
-          throw new Error('Audio files must be smaller than 60 MB')
-        const buffer = await audio.engine.import(file)
-        if (buffer.duration > 300)
-          throw new Error('Audio files must be shorter than 5 minutes')
-        const asset = await uploadAudio(id, file),
-          source = {
-            ...emptySource('audio'),
-            name: file.name.replace(/\.[^.]+$/, ''),
-            asset_id: asset.id,
-            duration: buffer.duration,
-          }
-        const part = {
-          id: crypto.randomUUID(),
-          name: source.name,
-          source_id: source.id,
-          offset: 0,
-          duration: source.duration,
-        }
-        await commit([
-          { type: 'source.add', source },
-          { type: 'part.add', part },
-        ])
-        await placePart(part.id)
-        openSource(source.id)
-      }
-    } catch (e) {
-      onError(e instanceof Error ? e.message : 'Audio import failed')
-    } finally {
-      setBusy(false)
-      preparingEdits.current--
-      finishSave()
-      if (input.current) input.current.value = ''
-    }
-  }
   async function saveReference(take: VocalTake, snapshot: ReferenceSnapshot) {
     const finishSave = saves.begin()
     const id = projectId
     const attempt = recordingSave.current?.takeId === take.id ? recordingSave.current
-      : { takeId: take.id, requestId: crypto.randomUUID() } as NonNullable<typeof recordingSave.current>
+      : { takeId: take.id, requestId: randomUUID() } as NonNullable<typeof recordingSave.current>
     recordingSave.current = attempt
     try {
       if (!attempt.assetId) {
@@ -362,7 +347,7 @@ export function StudioPage() {
         } catch (error) {
           if (error instanceof ApiError && error.code === 'version_conflict') {
             attempt.expectedVersion = undefined
-            attempt.requestId = crypto.randomUUID()
+            attempt.requestId = randomUUID()
             await queryClient.invalidateQueries({ queryKey: ['project', id] })
           }
           throw error
@@ -373,11 +358,12 @@ export function StudioPage() {
       await pending
     } finally { finishSave() }
   }
-  async function exportWav() {
+  async function exportWav(throwOnError=false) {
     setExporting(true)
     try {
       await audio.exportWav()
     } catch (e) {
+      if(throwOnError)throw e
       onError(e instanceof Error ? e.message : 'Export failed')
     } finally {
       setExporting(false)
@@ -427,20 +413,23 @@ export function StudioPage() {
           saving={persisting}
           dirty={project.has_unsaved_changes}
           example={!!project.draft_example_id || !project.draft_base_id}
-          onUndo={() => void undo()}
-          undoPending={busy}
-          canUndo={project.can_undo}
+          onSettings={()=>performance.setSettings(true)}
+          recording={performance.active||performance.saving}
         />
       }
       rightPanel={
         <ProducerPanel
+          onUndo={()=>void undo()}
           key={project.id}
-          session={session}
+          session={controller}
           project={project}
-          onProjectChange={setProject}
+          audio={clipAudio}
+          voice={voice}
         />
       }
     >
+      <ProducerComposer key={project.id} project={project} session={controller} audio={clipAudio} voice={voice}/>
+      <PerformanceRecordingDialog recording={performance}/>
       {recording && <VocalRecordingDialog project={project} source={recording.source} clip={recording.clip}
         onClose={() => { recordingDirty.current = false; setRecording(null) }}
         onState={onRecordingState} onSave={saveReference} />}
@@ -457,15 +446,6 @@ export function StudioPage() {
             Library
           </Button>
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => input.current?.click()}
-            disabled={busy}
-          >
-            <Upload />
-            Audio
-          </Button>
-          <Button
             aria-pressed={!!mixer}
             variant={mixer ? 'secondary' : 'ghost'}
             size="sm"
@@ -477,11 +457,22 @@ export function StudioPage() {
             <SlidersHorizontal />
             Mixer
           </Button>
+          <Button variant={performance.active?'secondary':'ghost'} size="sm" aria-label={performance.active?'Stop recording':'Record'}
+            aria-pressed={performance.active} disabled={performance.saving||(!performance.active&&(performance.failed||!!recording||busy||persisting||saving||controller.sending||!!controller.active))}
+            className={performance.active?'text-playback':undefined}
+            onClick={()=>performance.active?performance.stop():void performance.record()}>
+            {performance.active?<Square/>:performance.saving?<Loader2 className="animate-spin"/>:<Mic/>}
+            {performance.active?'Recording':performance.saving?'Saving…':'Record'}
+            {performance.phase==='count-in'&&performance.count>0&&<span role="status" aria-label={`Count-in ${performance.count}`} className="tabular-nums">{performance.count}</span>}
+          </Button>
 
           <div className="ml-auto max-w-full">
             <TransportBar
               project={project}
               preparing={audio.preparing}
+              recording={performance}
+              onMetronome={audio.toggleMetronome}
+              onStop={()=>{if(performance.active)performance.stop();else audio.stop()}}
               onTimeSignature={(time_signature) => void commit([{ type: 'project.set_time_signature', time_signature }])}
               onTempo={(tempo) =>
                 void commit([{ type: 'project.set_tempo', tempo }])
@@ -489,21 +480,13 @@ export function StudioPage() {
             />
           </div>
           {busy && <Loader2 className="size-3 shrink-0 animate-spin" />}
-          <input
-            ref={input}
-            type="file"
-            accept="audio/*"
-            multiple
-            hidden
-            onChange={(e) => void importFiles(e.target.files)}
-          />
         </div>
         <div className="relative flex min-h-0 flex-1">
             <PartLibrary
               open={library}
               engine={audio.engine}
               initialTab={
-                params.get('panel') === 'sounds' ? 'sounds' : undefined
+                params?.get('panel') === 'sounds' ? 'sounds' : undefined
               }
               project={project}
               activeSourceId={editor}
@@ -514,7 +497,7 @@ export function StudioPage() {
                   const source: Source = { ...emptySource('vocal'), name: options.name, duration: options.duration,
                     vocal: { voice_id: options.voiceId!, language: options.language!, syllables: {}, pitch: [], volume: [], vibrato: {} } }
                   await commit([{ type: 'source.add', source }, { type: 'part.add', part: {
-                    id: crypto.randomUUID(), name: source.name, source_id: source.id, offset: 0, duration: source.duration,
+                    id: randomUUID(), name: source.name, source_id: source.id, offset: 0, duration: source.duration,
                   } }])
                   openSource(source.id)
                   return
@@ -530,11 +513,23 @@ export function StudioPage() {
             />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <Arrangement
+              onUndo={()=>void undo()}
+              canUndo={project.can_undo}
+              undoPending={busy||saving||persisting||performance.busy}
+              audioBusy={clipAudio.busy||!!controller.active||controller.sending}
+              onContext={(context, anchor) => clipAudio.target(context, anchor)}
+              onAudioAction={(action,context) => {
+                if(controller.active||controller.sending||clipAudio.busy)return
+                clipAudio.choose(action)
+                void controller.sendText(audioActionMessage(action,controller.draft),context??clipAudio.context??undefined)
+              }}
               engine={audio.engine}
               project={project}
               commit={commit}
               onSelect={(track, id) => {
                 useStudioStore.getState().select(track, id)
+                const context=selectionContext(project,{trackId:track,clipId:id})
+                if(context)clipAudio.target(context)
                 const c = project.document.tracks
                   .find((t) => t.id === track)
                   ?.clips.find((c) => c.id === id)
@@ -543,7 +538,7 @@ export function StudioPage() {
                   const selectedClip = c
                   void (async () => {
                     try {
-                      const response = await fetch(
+                      const response = await fetchMedia(
                         mediaUrl(project.id, selectedClip.asset_id!),
                       )
                       if (!response.ok) throw new Error('Audio unavailable')
@@ -576,7 +571,7 @@ export function StudioPage() {
                   })()
                 }
               }}
-              onSeek={audio.seek}
+              onSeek={(beat)=>{if(!performance.active)audio.seek(beat)}}
               onTrack={(id) => {
                 setMixer(id)
                 setEditor(null)
@@ -619,6 +614,7 @@ export function StudioPage() {
                   ) : (
                     source && (
                       <PartEditor
+                        onSelectionChange={setProducerSelection}
                         interactive={interactive}
                         key={source.id}
                         project={project}
@@ -628,6 +624,7 @@ export function StudioPage() {
                         commit={commit}
                         onClose={() => setEditor(null)}
                         onRecordReference={() => {
+                          if(performance.busy){notifyError('Finish the current recording first.');return}
                           useStudioStore.getState().stop()
                           audio.engine.stop(); audio.engine.stopPart(); audio.engine.stopAudition()
                           setRecording({ source: structuredClone(source), clip: clip ? structuredClone(clip) : undefined })

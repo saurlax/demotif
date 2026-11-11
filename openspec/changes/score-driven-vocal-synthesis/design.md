@@ -121,7 +121,7 @@ Milestone B adds versioned score/lyrics and persistence; C adds durable worker/c
 ## Migration Plan
 
 1. In implementation, update AGENTS.md, `openspec/config.yaml`, architecture and research notes to record the user-authorized offline/server inference exception; retain browser real-time invariants. This planning change does not rewrite those files yet.
-2. Add the optional worker package/model profile installation instructions and example environment configuration. Suggested variables: `DEMOTIF_SINGING_PYTHON`, `DEMOTIF_SINGING_MODELS_ROOT`, `DEMOTIF_SINGING_DEVICE` (cpu/cuda). The server starts without singing installed.
+2. Add the optional worker package/model profile installation instructions and example environment configuration. Python paths and the models directory are derived from the project/data root; compute device is configured in demotif.config.json. The server starts without singing installed.
 3. Back up SQLite through the existing mechanism; add vocal tables and backward-compatible schema defaults. Keep all existing media/documents intact. Ship no weights in Git or public assets.
 4. Enable the first inspected voice profile after Milestone A; add score commands/editor and then playback/export integration. Extend draft/save cloning for derived bindings.
 5. Rollback by disabling singing dispatch and using the prior database backup if older code cannot parse newly saved vocal sources. Never strip vocal data to force an old build to open it. Cache artifacts remain reconstructible; existing instruments/audio keep working.

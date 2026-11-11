@@ -1,0 +1,7 @@
+## 1. Local experiment storage
+- [x] 1.1 Add persistent loopback S3 development service and direct-transfer support without extra environment variables.
+- [x] 1.2 Test local endpoint safety, browser sessions and real S3 read/write/range/checksum behavior; retain remote regression coverage.
+- [x] 1.3 Back up and copy accepted objects, verify digests, then switch ignored local configuration and restart.
+- [x] 1.4 Verify existing audio playback and new browser upload/export after cutover; run checks and document local startup.
+
+Verification (2026-11-08): copied and digest-verified all 24 unique accepted objects (228,097,936 bytes) before switching ignored local settings. Original remote objects remain unchanged; SQLite and configuration backups are under ignored data/backups. The first copy attempt used a bucket-prefixed endpoint incorrectly; endpoint normalization was corrected before successful cutover, without disabling TLS verification. Local app/S3 run together through dev:local. A real browser export uploaded and finalized through local S3; its WAV hash exactly matched the prior remote-backed render. Existing full-song playback advanced past 15 seconds after loading local media. 209 tests passed, 3 opt-in tests skipped; typecheck/build passed and lint retained existing warnings. No configured credentials were found in tracked/unignored source. Model keys and Producer configuration were preserved.

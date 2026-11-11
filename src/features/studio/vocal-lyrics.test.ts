@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest'
 import { sourceSchema } from '@/shared/schema'
 import { applyVocalEntry, vocalEntryPreview, assignVocalLyrics, vocalSyllableError, vocalScoreError, tokenizeVocalLyrics } from '@/lib/vocal-lyrics'
+it('accepts Japanese kana readings without Mandarin validation and rejects invalid Japanese overrides', () => {
+  expect(vocalSyllableError('境界', 'きょうかい', 'ja')).toBeUndefined()
+  expect(vocalSyllableError('境界', 'キョウカイ', 'ja')).toBeUndefined()
+  expect(vocalSyllableError('青い空', '', 'ja')).toBeUndefined()
+  expect(vocalSyllableError('境界', 'kyoukai', 'ja')).toContain('hiragana or katakana')
+})
 it('keeps explicit pinyin and phoneme timing when assigning unchanged lyric text', () => {
   const source = sourceSchema.parse({ kind: 'vocal', notes: [{ id: 'a', pitch: 60, start: 0, duration: 1 }, { id: 'b', pitch: 62, start: 1, duration: 1 }],
     vocal: { voice_id: 'demo', language: 'zh', syllables: { a: { kind: 'syllable', lyric: '乐', pronunciation: 'yue', phonemes: [{ symbol: 've', duration_beats: 1 }] }, b: { kind: 'continue' } } } })

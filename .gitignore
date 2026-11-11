@@ -1,5 +1,6 @@
 # Node
 node_modules/
+.storage/
 dist/
 .vite/
 *.tsbuildinfo
@@ -31,8 +32,13 @@ Thumbs.db
 
 # Next.js
 .next/
+.server/
 next-env.d.ts
 
 # Local environment variants
 .env.*
 !.env.example
+
+# Deployment settings and configuration backups
+demotif.config.json
+*.config-backup

@@ -82,8 +82,8 @@ describe("typed commands and operation history", () => {
     expect(getProject(db, p.id).version).toBe(1);
     expect(JSON.parse(getProject(db, p.id).document).tracks).toEqual([]);
   });
-  it("honors track and shared-source locks while allowing unlock and undo", () => {
-    const example = loadExample(db, "groove"),
+  it("honors track and shared-source locks while allowing unlock and undo", async () => {
+    const example = await loadExample(db, "groove"),
       p = getProject(db, example.id),
       doc = example.document,
       t = doc.tracks[0];
@@ -222,9 +222,9 @@ describe("typed commands and operation history", () => {
   });
 });
 describe("draft and save compatibility", () => {
-  it("opens examples as unlisted clean drafts and requires Save as", () => {
-    const first = loadExample(db, "groove"),
-      second = loadExample(db, "groove");
+  it("opens examples as unlisted clean drafts and requires Save as", async () => {
+    const first = await loadExample(db, "groove"),
+      second = await loadExample(db, "groove");
     expect(first.id).not.toBe(second.id);
     expect(first.has_unsaved_changes).toBe(false);
     expect(db.all("SELECT * FROM projects WHERE is_draft=0")).toHaveLength(0);

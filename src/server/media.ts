@@ -1,20 +1,18 @@
 import {
   createReadStream,
   existsSync,
-  mkdirSync,
   realpathSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import {
   basename,
-  dirname,
-  extname,
   isAbsolute,
   relative,
   resolve,
 } from "node:path";
 import { Readable } from "node:stream";
+import { binaries, type BinaryRef } from './storage';
+import { materialize } from './storage-cache';
 import { ApiError, missing } from "./errors";
 import { config } from "./config";
 import { newId } from "@/shared/schema";
@@ -67,35 +65,34 @@ export async function boundedBody(request: Request, max = config.maxUpload) {
   }
   return bytes;
 }
-export function storeAsset(
-  db: Store,
-  projectId: string,
-  name: string,
-  type: string,
-  data: Uint8Array,
-  kind = "sample",
-  key?: string,
-  id = newId(),
-): AssetRow {
-  const suffix = /^\.[a-z0-9]{1,10}$/i.test(extname(name))
-    ? extname(name).toLowerCase()
-    : "";
-  const storageKey = key ?? `${projectId}/${id}${suffix}`,
-    path = safePath(config.media, storageKey);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, data);
-  db.run(
-    "INSERT INTO assets (id,project_id,kind,filename,content_type,size_bytes,storage_key,created_at) VALUES (?,?,?,?,?,?,?,?)",
-    id,
-    projectId,
-    kind,
-    basename(name),
-    type,
-    data.length,
-    storageKey,
-    now(),
-  );
-  return db.get<AssetRow>("SELECT * FROM assets WHERE id=?", id)!;
+export function assetRef(asset: AssetRow): BinaryRef {
+  const key = asset.storage_key.replace(/^s3:/, '');
+  return { key, ...(key.startsWith('objects/') ? {sha256:key.slice(8)} : {md5:key.split('/').at(-1)}), size: asset.size_bytes, type: asset.content_type };
+}
+export async function prepareAsset(projectId: string, name: string, type: string, data: Uint8Array,
+  kind = 'sample', id = newId(), signal?: AbortSignal): Promise<AssetRow> {
+  const ref = await binaries().put(data, type, signal);
+  return { id, project_id: projectId, kind, filename: basename(name), content_type: type,
+    size_bytes: ref.size, storage_key: `s3:${ref.key}`, created_at: now() };
+}
+export function publishAsset(db: Store, asset: AssetRow): AssetRow {
+  db.run('INSERT INTO assets (id,project_id,kind,filename,content_type,size_bytes,storage_key,created_at) VALUES (?,?,?,?,?,?,?,?)',
+    asset.id, asset.project_id, asset.kind, asset.filename, asset.content_type, asset.size_bytes, asset.storage_key, asset.created_at);
+  return asset;
+}
+export async function storeAsset(db: Store, projectId: string, name: string, type: string, data: Uint8Array, kind = 'sample') {
+  const prepared = await prepareAsset(projectId, name, type, data, kind);
+  return db.tx(() => publishAsset(db, prepared));
+}
+export async function assetResponse(request: Request, asset: AssetRow) {
+  if (!asset.storage_key.startsWith('s3:')) return fileResponse(request, safePath(config.media, asset.storage_key), asset.content_type, asset.filename);
+  const response = await binaries().response(request, assetRef(asset));
+  response.headers.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(asset.filename).replaceAll("'", '%27')}`);
+  return response;
+}
+export async function materializeAsset(asset: AssetRow, signal?: AbortSignal) {
+  if (!asset.storage_key.startsWith('s3:')) return safePath(config.media, asset.storage_key);
+  return materialize(assetRef(asset), signal);
 }
 export function fileResponse(
   request: Request,

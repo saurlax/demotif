@@ -76,3 +76,16 @@ it('does not replace a take when a processor finishes without receiving any audi
   h.port.onmessage!({ data: { type: 'done', frame: 8350 } })
   expect(h.events.take).not.toHaveBeenCalled(); expect(h.stop).toHaveBeenCalledOnce()
 })
+it('arms exact shared-clock frames and never closes the studio AudioContext',async()=>{
+  const h=harness();await h.recorder.prepare(undefined,h.context as unknown as AudioContext);
+  h.recorder.recordAt(3.25);expect(h.port.postMessage).toHaveBeenCalledWith({type:'arm',start:3250,end:Number.MAX_SAFE_INTEGER});
+  h.port.onmessage!({data:{type:'pcm',frame:3250,pcm:new Float32Array(100).fill(.2)}});
+  h.port.onmessage!({data:{type:'done',frame:3350}});
+  expect(h.events.take.mock.calls[0][0]).toMatchObject({startFrame:3250,duration:.1});expect(h.context.close).not.toHaveBeenCalled();expect(h.stop).toHaveBeenCalledOnce();
+});
+it('finishes a bounded shared-clock capture at its requested end frame without a stop call',async()=>{
+  const h=harness();await h.recorder.prepare(undefined,h.context as unknown as AudioContext);h.recorder.recordAt(3.25,.25);
+  expect(h.port.postMessage).toHaveBeenCalledWith({type:'arm',start:3250,end:3500});
+  h.port.onmessage!({data:{type:'pcm',frame:3250,pcm:new Float32Array(250).fill(.2)}});h.port.onmessage!({data:{type:'done',frame:3500}});
+  expect(h.events.take.mock.calls[0][0]).toMatchObject({startFrame:3250,duration:.25,interrupted:false});expect(h.context.close).not.toHaveBeenCalled();
+});
