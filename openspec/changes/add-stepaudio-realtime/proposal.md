@@ -26,4 +26,4 @@ None in main specs (the main spec inventory is empty). This change supersedes th
 
 Touches browser audio, provider and HTTP/WebSocket adapter boundaries; server model mutations remain owned by existing Producer command handling. A Node upgrade-capable entry point and the `ws` package are needed because the current Pages API handler only handles HTTP requests. Configuration, dev/start scripts, voice entry UI and tests change.
 
-Non-goals: accompaniment-synchronized vocal recording, take comping, humming-to-notes capture, WebRTC, changing the text Producer default, generating the introduction film, and replacing ElevenLabs music/audio jobs. Realtime speech understanding alone does not persist a hummed motif as editable notes.
+Non-goals: accompaniment-synchronized vocal recording, take comping, humming-to-notes capture, WebRTC, changing the text Producer default, and replacing ElevenLabs music/audio jobs. Realtime speech understanding alone does not persist a hummed motif as editable notes.

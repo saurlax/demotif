@@ -9,5 +9,5 @@
 - Created local QA project Sidebar layout check (d091560bb2424704afcdc60af587cb9e). Producer offered a drum track, application created it at v2, lock advanced to v3, undo restored unlocked at v4. Existing project documents were not edited.
 - Producer conversation and draft survive panel close/reopen; conversation also remained when switching between desktop and narrow layouts. Applied marker remains visible.
 - Playhead continued advancing while left/right sidebars toggled; Stop reset it. Existing clip selection displayed its selection outline.
-- Screenshot: studio-wide.png. Browser viewport restored to its original size and existing Midnight sketch project left open.
+- Browser viewport restored to its original size and existing Midnight sketch project left open.
 - This is a layout adaptation. Existing recording/export/audio-engine placeholders and disabled library entries remain explicitly unavailable.

@@ -31,4 +31,4 @@ These sizes exclude row metadata and database overhead. Current Project.document
 
 - Consulted official FL Studio Playlist documentation linked in docs/architecture.md.
 - Replaced the random rounded capsule decoration with a compact clip and top title strip (52px track, 44px clip, 2px corner radius). Empty clips explicitly identify missing source; no fake MIDI notes or waveform data are generated. Actual note/waveform rendering remains unavailable until real content is supported.
-- Browser checked at its existing 789x764 size. Selected original clip remains selectable and the surrounding shadcn sidebar-15 shell is preserved. Saved clip-after.png and left original Midnight sketch open.
+- Browser checked at its existing 789x764 size. Selected original clip remains selectable and the surrounding shadcn sidebar-15 shell is preserved. The original Midnight sketch was left open.

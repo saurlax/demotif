@@ -2,32 +2,29 @@
 
 ## Context
 
-See proposal.md for the goal. The current film source is `docs/intro-video-script.md`, not the older timing table in `docs/intro-video-spec.md`. Current implementation includes StepAudio Realtime, male voice, contextual greetings, spoken interruption, call cues, bounded conversational recording and requested audio-to-notes continuation. Real microphone/headphone rehearsal remains pending.
+Current implementation includes StepAudio Realtime, male voice, contextual greetings, spoken interruption, call cues, bounded conversational recording and requested audio-to-notes continuation. Real microphone/headphone rehearsal remains pending.
 
-### Script-to-code audit
+### Recording workflow capabilities
 
-| Film requirement | Observed implementation | Remaining work |
+| Workflow | Observed implementation | Remaining work |
 | --- | --- | --- |
 | Continuous spoken Producer, warm male voice | `src/server/producer-realtime-session.ts`, `src/audio/realtime-voice.ts` | Implemented; keep the selected voice and provider-default sensitivity/timing. |
 | Hum four notes and see editable notes appear | Explicit `record_audio` captures the agreed phrase/range/target; verified placement resumes the conversation and requested offline `transcribe` creates editable notes | Implemented and tested with real Producer plus synthetic C/D/E/G. Humming defaults to audio; notation is explicit, not continuous live pitch tracking. |
-| Producer writes an answering phrase | Typed note-source edits and automatic draft application exist | Prepare and musically validate the actual four-note example; not a missing editing primitive. |
 | Drag a note longer, quantize and edit drums | `part-editor.tsx` supports dragging, resizing, transpose, Quantize and drum editing | Implemented. |
-| Switch electronic drums to light brushes | Built-in kits are studio/808/909/lofi; `drum_samples` allows imported custom samples | Prepare licensed brush samples and a reusable kit/catalog entry separately. |
 | Workbench metronome | Implemented transport toggle and shared-clock scheduling with alignment in both directions | Completed first slice. |
 | Four clicks then accompaniment and capture | Shared studio clock, finite worklet range, scheduled accompaniment/output gate, count-in and bounded metronome horizon | Implemented; physical device latency still needs rehearsal. |
 | Sing from an ordinary project | Record beside Mixer and chat-driven `record_audio`; no vocal source required | Implemented; reference score cues remain in the compatible reference workflow. |
 | Record the phrase again | Each completed recording is an ordinary audio Clip; manual Record adds a track and chat specifies a new/existing audio target | Implemented; old audio and mix state are preserved. |
 | Producer controls recording/playback | Acknowledged metronome/play/stop, required bounded recording plan, Save/Save as and WAV export tools | Implemented; browser owns permission and audio timing. |
-| Hear recorded vocals in the final demo | Ordinary audio Clips, mixing, mute/solo and WAV export | Implemented; the actual film arrangement still needs preparation. |
+| Hear recorded vocals in the mix | Ordinary audio Clips, mixing, mute/solo and WAV export | Implemented. |
 | Replace a sung line | Existing Clip split, trim, move and imported audio support manual assembly | Direct recording-to-Clip plus existing editing; punch-in/automatic comping remain separate. |
 | Compare changes | Tracks, mute/solo and append-only Undo exist | Reuse these controls; the user excluded dedicated A/B and take-management UI. |
-| Save/export and play alongside a silent phone video | Explicit Save/Save as, whole-project WAV export and DAW playback exist | Supported film workflow. A video compositor is not required. |
 
 ## Goals / Non-Goals
 
-**Goals:** Land one complete performance flow around the four-click scene and avoid presenting a metronome toggle as if it already solves synchronized recording. Reuse the accepted project model, sound engine, recorder worklet and typed commands.
+**Goals:** Land one complete performance flow with a four-click count-in and synchronized recording. Reuse the accepted project model, sound engine, recorder worklet and typed commands.
 
-**Non-Goals:** See proposal.md. This change does not implement every remaining film feature. Humming ingestion and brush materials should follow as focused changes. Keep existing reference-recording metadata and optional native singing behavior compatible.
+**Non-Goals:** See proposal.md. Keep existing reference-recording metadata and optional native singing behavior compatible.
 
 ## Decisions
 
@@ -81,4 +78,4 @@ Preparing is cancellable. If the user interrupts the preparation reply before co
 
 ## Migration Plan
 
-Add shared scheduling without changing saved project geometry. Preserve reference recording metadata and existing audio assets. Introduce direct recording-to-Clip and the control bridge incrementally behind capability discovery, then update Producer instructions to advertise only completed capabilities. Update film implementation notes and rehearse four clicks, record, re-record and compare through normal track controls after tests and build. No new cloud provider or dependency is required.
+Add shared scheduling without changing saved project geometry. Preserve reference recording metadata and existing audio assets. Introduce direct recording-to-Clip and the control bridge incrementally behind capability discovery, then update Producer instructions to advertise only completed capabilities. After tests and build, verify the four-click count-in, recording, re-recording and comparison through normal track controls using a real microphone and headphones. No new cloud provider or dependency is required.

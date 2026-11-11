@@ -30,6 +30,7 @@ context: |
   - Local adapters are seams for hosted migration: filesystem ↔ object storage, SQLite ↔ Postgres, local AI SDK producer ↔ hosted agent.
 
   ## Conventions
+  - Scope OpenSpec artifacts to software requirements, implementation, and verification. Keep promotional video scripts, production plans, and media outside OpenSpec.
   - Use npm for the Next.js app; uv for optional analysis and native singing inference.
   - Keep new dependencies justified by the change; update .env.example when configuration is added.
   - Implemented: browser audio/Workers and WAV export, clip/note/audio editing, mixing, built-in library,
